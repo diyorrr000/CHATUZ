@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock, MessageSquare } from 'lucide-react';
+import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -13,6 +13,7 @@ interface Message {
     data: string; // Base64
   };
   sender: 'me' | 'partner';
+  senderNickname?: string;
   timestamp: number;
 }
 
@@ -34,9 +35,10 @@ interface AdminGlobalMessage {
 }
 
 const App = () => {
-  const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
+  const [userData, setUserData] = useState<{ nickname: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
+  const [partnerNickname, setPartnerNickname] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
@@ -102,12 +104,14 @@ const App = () => {
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
-    socket.on('match-found', () => {
+    socket.on('match-found', (data: { partnerNickname: string }) => {
       setInQueue(false);
       setPartnerConnected(true);
+      setPartnerNickname(data.partnerNickname);
       setMessages([{
-        text: "Suhbatdosh topildi! Salom deng 😊",
+        text: `Suhbatdosh topildi: ${data.partnerNickname}! Salom deng 😊`,
         sender: 'partner',
+        senderNickname: data.partnerNickname,
         timestamp: Date.now()
       }]);
     });
@@ -115,7 +119,7 @@ const App = () => {
     socket.on('partner-disconnected', (data?: { reason: string }) => {
       setPartnerConnected(false);
       setInQueue(true);
-      socketRef.current?.emit('join-queue');
+      socketRef.current?.emit('join-queue', userData);
       const leaveMessage = data?.reason === 'skipped'
         ? "Suhbatdosh 'Keyingisi' tugmasini bosdi. Yangi suhbatdosh qidirilmoqda..."
         : "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...";
@@ -150,7 +154,7 @@ const App = () => {
   const toggleChat = () => {
     if (!inQueue && !partnerConnected) {
       setInQueue(true);
-      socketRef.current?.emit('join-queue');
+      socketRef.current?.emit('join-queue', userData);
     } else {
       setInQueue(false);
       setPartnerConnected(false);
@@ -170,7 +174,7 @@ const App = () => {
     if (!inputValue.trim() || !partnerConnected) return;
     const msg: Partial<Message> = { text: inputValue };
     socketRef.current?.emit('send-message', msg);
-    setMessages(prev => [...prev, { text: inputValue, sender: 'me', timestamp: Date.now() }]);
+    setMessages(prev => [...prev, { text: inputValue, sender: 'me', senderNickname: userData?.nickname, timestamp: Date.now() }]);
     setInputValue('');
   };
 
@@ -182,7 +186,7 @@ const App = () => {
       const base64Data = event.target?.result as string;
       const fileMsg: Partial<Message> = { file: { name: file.name, type: file.type, data: base64Data } };
       socketRef.current?.emit('send-message', fileMsg);
-      setMessages(prev => [...prev, { file: { name: file.name, type: file.type, data: base64Data }, sender: 'me', timestamp: Date.now() }]);
+      setMessages(prev => [...prev, { file: { name: file.name, type: file.type, data: base64Data }, sender: 'me', senderNickname: userData?.nickname, timestamp: Date.now() }]);
     };
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -229,12 +233,12 @@ const App = () => {
                 <h3>FOYDALANUVCHILAR</h3>
                 <table>
                   <thead>
-                    <tr><th>ID</th><th>IP</th><th>STATUS</th></tr>
+                    <tr><th>NIK</th><th>IP</th><th>STATUS</th></tr>
                   </thead>
                   <tbody>
                     {adminData?.users.map((u, i) => (
                       <tr key={i} className={u.id === socketRef.current?.id ? 'is-me' : ''}>
-                        <td className="font-mono text-[10px]">{u.id.slice(0, 5)}</td>
+                        <td className="font-bold text-blue-300">{u.nickname || 'Anonim'}</td>
                         <td className="font-mono text-[10px] text-blue-400">{u.ip}</td>
                         <td><span className={`status-pill ${u.status === 'Chatda' ? 'bg-green-500' : 'bg-blue-500'}`}>{u.status}</span></td>
                       </tr>
@@ -250,7 +254,7 @@ const App = () => {
                   {globalMessages.map((gm, i) => (
                     <div key={i} className="admin-msg-row">
                       <span className="time">{new Date(gm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                      <span className="ids">[{gm.from.slice(0, 4)} → {gm.to.slice(0, 4)}]</span>
+                      <span className="ids">[{gm.from} → {gm.to}]</span>
                       <span className="txt">{gm.hasFile ? "📎 FAYL YUBORDI" : gm.text}</span>
                     </div>
                   ))}
@@ -281,7 +285,7 @@ const App = () => {
       <main className="chat-main">
         {partnerConnected ? (
           <div className="partner-info-bar">
-            <User size={14} /> <span>Suhbatdosh ulandi (Global)</span>
+            <User size={14} /> <span>Suhbatdosh: <strong>{partnerNickname}</strong></span>
             <button className="next-btn" onClick={nextUser}>KEYINGISI</button>
           </div>
         ) : (
@@ -294,7 +298,7 @@ const App = () => {
             ) : (
               <div className="start-prompt">
                 <Play size={48} />
-                <p>Suhbatni boshlash uchun START tugmasini bosing</p>
+                <p>Salom, <strong>{userData?.nickname}</strong>! Suhbatni boshlang</p>
                 <button className="main-start-btn" onClick={toggleChat}>START</button>
               </div>
             )}
@@ -305,6 +309,9 @@ const App = () => {
           {messages.map((m, i) => (
             <div key={i} className={`message-wrapper ${m.sender}`}>
               <div className="message-content">
+                <span className="nickname-label" style={{ fontSize: '9px', opacity: 0.6, marginBottom: '2px' }}>
+                  {m.sender === 'me' ? 'Siz' : m.senderNickname}
+                </span>
                 {m.text && <p className="text">{m.text}</p>}
                 {m.file && (
                   <div className="file-attachment">
@@ -330,7 +337,7 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">Muallif: @secureXXX</div>
+        <div className="author-tag">Muallif: @secureXXX | Sizning nikingiz: {userData?.nickname}</div>
         <div className="input-area">
           <button className="action-btn" onClick={toggleChat} title={inQueue || partnerConnected ? "To'xtatish" : "Boshlash"}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}

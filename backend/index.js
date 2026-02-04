@@ -61,7 +61,8 @@ io.on('connection', (socket) => {
     const ip = getClientIP(socket);
     console.log('User connected:', socket.id, 'IP:', ip);
 
-    users.set(socket.id, { ip, joinedAt: Date.now() });
+    // Initial user data (waiting for nickname)
+    users.set(socket.id, { ip, joinedAt: Date.now(), nickname: 'Qidirilmoqda...' });
     broadcastOnlineCount();
     broadcastAdminUpdate();
 
@@ -74,20 +75,24 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('join-queue', () => {
+    socket.on('join-queue', (data) => {
+        const nickname = data?.nickname || 'Anonim';
+        users.set(socket.id, { ...users.get(socket.id), nickname });
+
         if (activeChats.has(socket.id)) {
             leaveChat(socket);
         }
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-        waitingQueue.push({ id: socket.id });
+        waitingQueue.push({ id: socket.id, nickname });
         matchUsers();
         broadcastAdminUpdate();
     });
 
     socket.on('next-user', () => {
+        const userData = users.get(socket.id);
         leaveChat(socket, 'skipped');
         if (!waitingQueue.find(u => u.id === socket.id)) {
-            waitingQueue.push({ id: socket.id });
+            waitingQueue.push({ id: socket.id, nickname: userData?.nickname });
             matchUsers();
             broadcastAdminUpdate();
         }
@@ -95,13 +100,14 @@ io.on('connection', (socket) => {
 
     socket.on('send-message', (message) => {
         const chat = activeChats.get(socket.id);
+        const userData = users.get(socket.id);
         if (chat) {
-            io.to(chat.partnerId).emit('receive-message', message);
+            io.to(chat.partnerId).emit('receive-message', { ...message, senderNickname: userData?.nickname });
 
             // Broadcast to admins for monitoring
             io.to('admin-room').emit('admin-new-message', {
-                from: socket.id,
-                to: chat.partnerId,
+                from: userData?.nickname || socket.id,
+                to: users.get(chat.partnerId)?.nickname || chat.partnerId,
                 text: message.text,
                 hasFile: !!message.file,
                 timestamp: Date.now()
@@ -111,11 +117,12 @@ io.on('connection', (socket) => {
 
     socket.on('report-user', () => {
         const chat = activeChats.get(socket.id);
+        const userData = users.get(socket.id);
         if (chat) {
             const partnerId = chat.partnerId;
             leaveChat(socket);
             if (!waitingQueue.find(u => u.id === socket.id)) {
-                waitingQueue.push({ id: socket.id });
+                waitingQueue.push({ id: socket.id, nickname: userData?.nickname });
                 matchUsers();
             }
             io.to(partnerId).emit('partner-disconnected', { reason: 'left' });
@@ -138,11 +145,11 @@ function matchUsers() {
         const user1 = waitingQueue.shift();
         const user2 = waitingQueue.shift();
 
-        activeChats.set(user1.id, { partnerId: user2.id });
-        activeChats.set(user2.id, { partnerId: user1.id });
+        activeChats.set(user1.id, { partnerId: user2.id, partnerNickname: user2.nickname });
+        activeChats.set(user2.id, { partnerId: user1.id, partnerNickname: user1.nickname });
 
-        io.to(user1.id).emit('match-found', { partnerId: user2.id });
-        io.to(user2.id).emit('match-found', { partnerId: user1.id });
+        io.to(user1.id).emit('match-found', { partnerId: user2.id, partnerNickname: user2.nickname });
+        io.to(user2.id).emit('match-found', { partnerId: user1.id, partnerNickname: user1.nickname });
     }
 }
 
@@ -154,8 +161,9 @@ function leaveChat(socket, reason = 'left') {
         activeChats.delete(partnerId);
         activeChats.delete(socket.id);
 
-        if (!waitingQueue.find(u => u.id === partnerId)) {
-            waitingQueue.push({ id: partnerId });
+        const partnerData = users.get(partnerId);
+        if (partnerData && !waitingQueue.find(u => u.id === partnerId)) {
+            waitingQueue.push({ id: partnerId, nickname: partnerData.nickname });
             matchUsers();
         }
     }

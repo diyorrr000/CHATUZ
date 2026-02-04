@@ -1,12 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 
 interface AgeConfirmationProps {
-    onConfirm: (data: any) => void;
+    onConfirm: (data: { nickname: string }) => void;
     realOnlineCount: number;
 }
 
 const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnlineCount }) => {
+    const [nickname, setNickname] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (nickname.trim().length >= 3) {
+            onConfirm({ nickname: nickname.trim() });
+        }
+    };
+
     return (
         <div className="landing-overlay" style={{
             position: 'fixed',
@@ -69,23 +78,46 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                     <span>{realOnlineCount} foydalanuvchi onlayn</span>
                 </div>
 
-                <p style={{ color: '#94a3b8', marginBottom: '30px', fontSize: '15px', lineHeight: '1.5' }}>
-                    Anonim chatga xush kelibsiz! <br /> Hech qanday ro'yxatdan o'tishlarsiz muloqotni boshlang.
-                </p>
+                <form onSubmit={handleSubmit} style={{ marginBottom: '30px', textAlign: 'left' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#94a3b8', marginBottom: '8px', marginLeft: '4px' }}>NIKINGIZNI YOZING</label>
+                    <input
+                        type="text"
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="Masalan: Dilshod_99"
+                        required
+                        minLength={3}
+                        maxLength={15}
+                        style={{
+                            width: '100%',
+                            height: '56px',
+                            background: 'rgba(15, 23, 42, 0.6)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '16px',
+                            color: 'white',
+                            padding: '0 16px',
+                            fontWeight: '600',
+                            outline: 'none',
+                            fontSize: '16px'
+                        }}
+                    />
+                </form>
 
                 <button
-                    onClick={() => onConfirm({})}
+                    onClick={handleSubmit}
+                    disabled={nickname.trim().length < 3}
                     style={{
                         width: '100%',
                         height: '64px',
-                        background: '#3b82f6',
-                        color: 'white',
+                        background: nickname.trim().length < 3 ? '#1e293b' : '#3b82f6',
+                        color: nickname.trim().length < 3 ? '#64748b' : 'white',
                         border: 'none',
                         borderRadius: '20px',
                         fontSize: '18px',
                         fontWeight: '900',
-                        cursor: 'pointer',
-                        boxShadow: '0 10px 15px -3px rgba(59, 130, 246, 0.3)',
+                        cursor: nickname.trim().length < 3 ? 'not-allowed' : 'pointer',
+                        boxShadow: nickname.trim().length < 3 ? 'none' : '0 10px 15px -3px rgba(59, 130, 246, 0.3)',
+                        transition: 'all 0.2s'
                     }}
                 >
                     CHATNI BOSHLASH
