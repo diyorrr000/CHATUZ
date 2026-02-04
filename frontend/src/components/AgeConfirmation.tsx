@@ -124,9 +124,18 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                     CHATNI BOSHLASH
                 </button>
 
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '15px' }}>
+                    <a href="https://t.me/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#3390ec', textDecoration: 'none', fontSize: '12px', fontWeight: '800', background: 'rgba(51, 144, 236, 0.1)', padding: '8px 15px', borderRadius: '12px' }}>
+                        TELEGRAM
+                    </a>
+                    <a href="https://instagram.com/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#e1306c', textDecoration: 'none', fontSize: '12px', fontWeight: '800', background: 'rgba(225, 48, 108, 0.1)', padding: '8px 15px', borderRadius: '12px' }}>
+                        INSTAGRAM
+                    </a>
+                </div>
+
                 <div style={{ marginTop: '30px', opacity: 0.5, fontSize: '11px' }}>
                     <p style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px' }}>
-                        Men 18 yoshga to'lganimni tasdiqlayman
+                        @zafarvcd rasmiy kanallari
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '15px' }}>
                         <a href="#" style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 'bold' }}>SHARTLAR</a>

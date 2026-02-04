@@ -359,7 +359,13 @@ const App = () => {
                 <button className="skip-btn" onClick={stopChat} style={{ marginTop: '10px' }}>TO'XTATISH</button>
               </div>
             ) : (
-              <div className="start-prompt"><Play size={48} /><p>Salom, <strong>{userData.nickname}</strong></p>
+              <div className="start-prompt">
+                <Play size={48} />
+                <p>Salom, <strong>{userData.nickname}</strong></p>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                  <a href="https://t.me/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ background: '#3390ec', color: 'white', padding: '6px 12px', borderRadius: '15px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' }}>TG: @zafarvcd</a>
+                  <a href="https://instagram.com/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ background: '#e1306c', color: 'white', padding: '6px 12px', borderRadius: '15px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' }}>IG: @zafarvcd</a>
+                </div>
                 <button className="main-start-btn" onClick={startChat}>CHATNI BOSHLASH</button>
               </div>
             )}
@@ -397,7 +403,15 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">@secureXXX | v{APP_VERSION}</div>
+        <div className="author-tag">
+          <a href="https://t.me/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ color: '#3390ec', textDecoration: 'none' }}>TELEGRAM</a>
+          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
+          <a href="https://instagram.com/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ color: '#e1306c', textDecoration: 'none' }}>INSTAGRAM</a>
+          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
+          <span style={{ opacity: 0.8 }}>@zafarvcd</span>
+          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
+          <span>v{APP_VERSION}</span>
+        </div>
         <div className="input-area">
           <button className="action-btn" onClick={partnerConnected ? nextChat : startChat} disabled={isSpying}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
