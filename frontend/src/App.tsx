@@ -32,13 +32,16 @@ const App = () => {
   const [userData, setUserData] = useState<{ nickname: string, uid: string } | null>(() => {
     try {
       const saved = localStorage.getItem('chatuz_user');
-      if (saved) return JSON.parse(saved);
+      let uid = localStorage.getItem('chatuz_uid');
+      if (!uid) {
+        uid = 'u_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('chatuz_uid', uid);
+      }
 
-      // If no user, create a temporary UID for persistence
-      let existingUid = localStorage.getItem('chatuz_uid');
-      if (!existingUid) {
-        existingUid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        localStorage.setItem('chatuz_uid', existingUid);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed.uid) parsed.uid = uid;
+        return parsed;
       }
       return null;
     } catch (e) { return null; }
@@ -128,6 +131,9 @@ const App = () => {
 
     socket.on('connect', () => {
       setIsConnected(true);
+      const uid = localStorage.getItem('chatuz_uid');
+      socket.emit('init', { uid });
+
       if (stateRef.current.userData && (stateRef.current.inQueue || stateRef.current.partnerConnected)) {
         socket.emit('join-queue', stateRef.current.userData);
       }

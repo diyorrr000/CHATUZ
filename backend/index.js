@@ -47,17 +47,24 @@ io.on('connection', (socket) => {
     io.emit('online-count', io.engine.clientsCount);
     broadcastAdminUpdate();
 
+    socket.on('init', (data) => {
+        const uid = data?.uid;
+        if (uid) {
+            users.set(socket.id, { ...users.get(socket.id), uid });
+            // Auto-login if permanent admin
+            if (permanentAdmins.has(uid)) {
+                currentAdmins.add(socket.id);
+                socket.join('admin-room');
+                socket.emit('admin-auth-success');
+            }
+            broadcastAdminUpdate();
+        }
+    });
+
     socket.on('join-queue', (data) => {
         const nickname = data?.nickname || 'Mehmon';
         const uid = data?.uid;
         users.set(socket.id, { ...users.get(socket.id), nickname, uid });
-
-        // Auto-login if permanent admin
-        if (uid && permanentAdmins.has(uid)) {
-            currentAdmins.add(socket.id);
-            socket.join('admin-room');
-            socket.emit('admin-auth-success');
-        }
 
         cleanupUser(socket.id);
         waitingQueue.push({ id: socket.id, nickname });
