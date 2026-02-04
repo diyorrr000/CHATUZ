@@ -97,6 +97,15 @@ io.on('connection', (socket) => {
         const chat = activeChats.get(socket.id);
         if (chat) {
             io.to(chat.partnerId).emit('receive-message', message);
+
+            // Broadcast to admins for monitoring
+            io.to('admin-room').emit('admin-new-message', {
+                from: socket.id,
+                to: chat.partnerId,
+                text: message.text,
+                hasFile: !!message.file,
+                timestamp: Date.now()
+            });
         }
     });
 
