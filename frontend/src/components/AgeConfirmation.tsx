@@ -1,28 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 
-interface UserData {
-    age: string;
-    country: string;
-}
-
 interface AgeConfirmationProps {
-    onConfirm: (data: UserData) => void;
+    onConfirm: (data: any) => void;
     realOnlineCount: number;
 }
 
-const countryGroups = [
-    { label: "Global", countries: ["Dunyo bo'ylab (Global)"] },
-    { label: "Markaziy Osiyo", countries: ["O'zbekiston", "Qozog'iston", "Qirg'iziston", "Tojikiston"] },
-    { label: "Boshqa", countries: ["Rossiya", "Ukraina", "Turkiya", "Ozarbayjon", "Germaniya", "AQSh"] }
-];
-
-const ageRanges = ["18-24", "25-34", "35-44", "45+"];
-
 const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnlineCount }) => {
-    const [age, setAge] = useState(ageRanges[0]);
-    const [country, setCountry] = useState("Dunyo bo'ylab (Global)");
-
     return (
         <div className="landing-overlay" style={{
             position: 'fixed',
@@ -85,57 +69,12 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                     <span>{realOnlineCount} foydalanuvchi onlayn</span>
                 </div>
 
-                <div style={{ marginBottom: '30px', textAlign: 'left' }}>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#94a3b8', marginBottom: '8px', marginLeft: '4px' }}>HUDUDNI TANLANG</label>
-                    <select
-                        value={country}
-                        onChange={(e) => setCountry(e.target.value)}
-                        style={{
-                            width: '100%',
-                            height: '56px',
-                            background: 'rgba(15, 23, 42, 0.6)',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
-                            borderRadius: '16px',
-                            color: 'white',
-                            padding: '0 16px',
-                            fontWeight: '600',
-                            marginBottom: '16px',
-                            outline: 'none',
-                            cursor: 'pointer',
-                            fontSize: '16px'
-                        }}
-                    >
-                        {countryGroups.map(group => (
-                            <optgroup key={group.label} label={group.label}>
-                                {group.countries.map(c => <option key={c} value={c}>{c}</option>)}
-                            </optgroup>
-                        ))}
-                    </select>
-
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#94a3b8', marginBottom: '8px', marginLeft: '4px' }}>YOSHINGIZ</label>
-                    <select
-                        value={age}
-                        onChange={(e) => setAge(e.target.value)}
-                        style={{
-                            width: '100%',
-                            height: '56px',
-                            background: 'rgba(15, 23, 42, 0.6)',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
-                            borderRadius: '16px',
-                            color: 'white',
-                            padding: '0 16px',
-                            fontWeight: '600',
-                            outline: 'none',
-                            cursor: 'pointer',
-                            fontSize: '16px'
-                        }}
-                    >
-                        {ageRanges.map(a => <option key={a} value={a}>{a} yoshdagilar</option>)}
-                    </select>
-                </div>
+                <p style={{ color: '#94a3b8', marginBottom: '30px', fontSize: '15px', lineHeight: '1.5' }}>
+                    Anonim chatga xush kelibsiz! <br /> Hech qanday ro'yxatdan o'tishlarsiz muloqotni boshlang.
+                </p>
 
                 <button
-                    onClick={() => onConfirm({ age, country })}
+                    onClick={() => onConfirm({})}
                     style={{
                         width: '100%',
                         height: '64px',

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, Globe, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download } from 'lucide-react';
+import { Play, Square, Globe, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock, Globe2 } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -16,6 +16,15 @@ interface Message {
   timestamp: number;
 }
 
+interface AdminData {
+  users: any[];
+  stats: {
+    total: number;
+    inChat: number;
+    waiting: number;
+  };
+}
+
 const App = () => {
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
@@ -26,6 +35,12 @@ const App = () => {
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
+  // Admin states
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [adminData, setAdminData] = useState<AdminData | null>(null);
+  const typedKeys = useRef<string>('');
+
   const socketRef = useRef<Socket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +48,25 @@ const App = () => {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      typedKeys.current += e.key.toLowerCase();
+      if (typedKeys.current.endsWith('admin')) {
+        const pass = prompt('Admin paroli:');
+        if (pass === '1212') {
+          socketRef.current?.emit('admin-login', pass);
+        } else if (pass !== null) {
+          alert('Noto\'g\'ri parol!');
+        }
+        typedKeys.current = '';
+      }
+      if (typedKeys.current.length > 20) typedKeys.current = typedKeys.current.slice(-10);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
@@ -70,6 +104,16 @@ const App = () => {
 
     socket.on('receive-message', (msg: any) => {
       setMessages(prev => [...prev, { ...msg, sender: 'partner', timestamp: Date.now() }]);
+    });
+
+    // Admin listeners
+    socket.on('admin-auth-success', () => {
+      setIsAdmin(true);
+      setShowAdminPanel(true);
+    });
+
+    socket.on('admin-update', (data: AdminData) => {
+      setAdminData(data);
     });
 
     return () => { socket.disconnect(); };
@@ -144,8 +188,74 @@ const App = () => {
 
   return (
     <div className="app-container chat-only">
+      {/* Admin Panel Modal */}
+      {showAdminPanel && isAdmin && (
+        <div className="admin-overlay">
+          <div className="admin-modal">
+            <div className="admin-header">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="text-blue-500" />
+                <h2>Boshqaruv Paneli</h2>
+              </div>
+              <Activity className="text-blue-500 animate-pulse" />
+              <button className="close-admin" onClick={() => setShowAdminPanel(false)}>Yopish</button>
+            </div>
+
+            <div className="admin-stats">
+              <div className="stat-card">
+                <Users size={20} />
+                <div className="val">{adminData?.stats.total || 0}</div>
+                <div className="lab">Jami foydalanuvchi</div>
+              </div>
+              <div className="stat-card">
+                <Activity size={20} />
+                <div className="val">{adminData?.stats.inChat || 0}</div>
+                <div className="lab">Suhbatda</div>
+              </div>
+              <div className="stat-card">
+                <Clock size={20} />
+                <div className="val">{adminData?.stats.waiting || 0}</div>
+                <div className="lab">Navbatda</div>
+              </div>
+            </div>
+
+            <div className="admin-user-list">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>IP Manzil</th>
+                    <th>Hudud</th>
+                    <th>Yosh</th>
+                    <th>Holat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminData?.users.map((u, i) => (
+                    <tr key={i} className={u.id === socketRef.current?.id ? 'is-me' : ''}>
+                      <td className="font-mono text-[10px]">{u.id.slice(0, 8)}...</td>
+                      <td className="font-mono text-[11px] text-blue-400">{u.ip}</td>
+                      <td>{u.country}</td>
+                      <td>{u.age}</td>
+                      <td>
+                        <span className={`status-pill ${u.status === 'Chatda' ? 'bg-green-500' : 'bg-blue-500'}`}>
+                          {u.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="chat-header">
-        <div className="logo">CHAT<span>UZ</span></div>
+        <div className="logo" onClick={() => isAdmin && setShowAdminPanel(true)} style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
+          CHAT<span>UZ</span>
+          {isAdmin && <ShieldCheck size={14} className="inline ml-1 text-blue-500" />}
+        </div>
         <div className="header-info">
           <div className="online-badge">
             <div className="dot"></div>
@@ -160,9 +270,7 @@ const App = () => {
       <main className="chat-main">
         {partnerConnected ? (
           <div className="partner-info-bar">
-            <Globe size={14} /> <span>{partnerData?.country}</span>
-            <span className="separator">|</span>
-            <User size={14} /> <span>{partnerData?.age} yosh</span>
+            <User size={14} /> <span>Suhbatdosh ulandi (Global)</span>
             <button className="next-btn" onClick={nextUser}>KEYINGISI</button>
           </div>
         ) : (
