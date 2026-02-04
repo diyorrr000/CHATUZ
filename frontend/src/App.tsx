@@ -201,8 +201,10 @@ const App = () => {
     setTimeout(() => { logoClicks.current = 0; }, 3000);
   };
 
+  console.log('Current UserData:', userData);
+
   if (!userData) {
-    return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
+    return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data: any) => setUserData(data)} />;
   }
 
   return (
