@@ -23,64 +23,292 @@ body {
   box-sizing: border-box;
 }
 
-.glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 24px;
+/* Base Utilities to replace Tailwind */
+.fixed {
+  position: fixed;
 }
 
-/* Chatruletka Style Control Blocks */
-.control-block {
-  background: #1e3a8a;
-  /* Navy Blue */
-  height: 100px;
-  border-radius: 20px;
+.inset-0 {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.z-50 {
+  z-index: 50;
+}
+
+.flex {
   display: flex;
+}
+
+.flex-col {
   flex-direction: column;
+}
+
+.items-center {
   align-items: center;
+}
+
+.justify-center {
   justify-content: center;
-  gap: 8px;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.relative {
+  position: relative;
+}
+
+.absolute {
+  position: absolute;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.max-w-lg {
+  max-width: 32rem;
+}
+
+.mb-2 {
+  margin-bottom: 0.5rem;
+}
+
+.mb-4 {
+  margin-bottom: 1rem;
+}
+
+.mb-6 {
+  margin-bottom: 1.5rem;
+}
+
+.mb-8 {
+  margin-bottom: 2rem;
+}
+
+.mb-10 {
+  margin-bottom: 2.5rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.gap-4 {
+  gap: 1rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.p-10 {
+  padding: 2.5rem;
+}
+
+.bg-black-60 {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.backdrop-blur-xl {
+  backdrop-filter: blur(24px);
+}
+
+.backdrop-blur-2xl {
+  backdrop-filter: blur(40px);
+}
+
+.rounded-2xl {
+  border-radius: 1rem;
+}
+
+.rounded-40 {
+  border-radius: 40px;
+}
+
+.border {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: all 0.2s;
-  min-width: 120px;
-  user-select: none;
 }
 
-.control-block:hover {
-  background: #1d4ed8;
-  transform: translateY(-2px);
+.border-white-20 {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.control-block:active {
-  transform: translateY(0);
+.shadow-2xl {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
-.control-block.active {
-  background: #2563eb;
-  border-color: #60a5fa;
-  box-shadow: 0 0 15px rgba(37, 99, 235, 0.4);
+.text-5xl {
+  font-size: 3rem;
 }
 
-.control-block.disabled {
-  background: #1e293b;
-  opacity: 0.6;
-  cursor: not-allowed;
+.font-black {
+  font-weight: 900;
 }
 
-.control-block span {
-  font-size: 14px;
+.font-bold {
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.control-block .icon {
+.font-medium {
+  font-weight: 500;
+}
+
+.text-white {
   color: #ffffff;
 }
 
+.text-white-80 {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.text-white-40 {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.text-white-30 {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.text-blue-400 {
+  color: #60a5fa;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+}
+
+.tracking-tight {
+  letter-spacing: -0.025em;
+}
+
+.tracking-widest {
+  letter-spacing: 0.1em;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+/* Landing Page Specific Styles */
+.landing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(15px);
+}
+
+.landing-card {
+  position: relative;
+  max-width: 500px;
+  width: 90%;
+  background: #1a3a6d;
+  /* Navy Blue background */
+  border-radius: 40px;
+  padding: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  color: white;
+}
+
+.landing-logo {
+  width: 100px;
+  height: 100px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  margin: 0 auto 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.online-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 25px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.online-dot {
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #22c55e;
+}
+
+.input-select {
+  width: 100%;
+  height: 56px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: white;
+  padding: 0 20px;
+  font-weight: 600;
+  margin-bottom: 15px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+}
+
+.input-select:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-start {
+  width: 100%;
+  height: 64px;
+  background: linear-gradient(to right, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  border-radius: 16px;
+  font-size: 20px;
+  font-weight: 900;
+  cursor: pointer;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+  transition: all 0.2s;
+}
+
+.btn-start:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+.btn-start:active {
+  transform: translateY(0);
+}
+
+/* App Main Styles */
 .video-grid {
   display: flex;
   gap: 12px;
@@ -94,7 +322,6 @@ body {
   border-radius: 12px;
   overflow: hidden;
   position: relative;
-  border: 2px solid rgba(255, 255, 255, 0.05);
 }
 
 .video-box video {
@@ -103,29 +330,20 @@ body {
   object-fit: cover;
 }
 
-.mirror {
-  transform: scaleX(-1);
-}
-
 .badge {
   position: absolute;
   top: 15px;
   left: 15px;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
   padding: 4px 12px;
   border-radius: 8px;
   font-size: 11px;
   font-weight: 800;
-  color: #fff;
   z-index: 5;
-  text-transform: uppercase;
-  letter-spacing: 1px;
 }
 
-/* Bottom Panel */
 .bottom-panel {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
@@ -136,45 +354,29 @@ body {
   justify-content: space-between;
   padding: 0 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  gap: 15px;
 }
 
-.main-controls {
+.control-block {
+  background: #1e3a8a;
+  height: 100px;
+  border-radius: 20px;
   display: flex;
-  gap: 12px;
-}
-
-.chat-input-area {
-  flex: 1;
-  max-width: 600px;
-  background: #1f2937;
-  border-radius: 15px;
-  height: 50px;
-  display: flex;
+  flex-direction: column;
   align-items: center;
-  padding: 0 15px;
+  justify-content: center;
+  gap: 8px;
+  min-width: 110px;
+  cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.chat-input-area input {
-  background: transparent;
-  border: none;
-  color: white;
-  flex: 1;
-  outline: none;
-  font-size: 14px;
+.control-block.active {
+  background: #2563eb;
+  box-shadow: 0 0 15px rgba(37, 99, 235, 0.4);
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
+.control-block span {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
