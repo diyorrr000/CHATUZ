@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock } from 'lucide-react';
+import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock, RefreshCw } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -27,10 +27,15 @@ interface AdminGlobalMessage {
 }
 
 const App = () => {
-  // Persistence for nickname
+  // Safe state initialization
   const [userData, setUserData] = useState<{ nickname: string } | null>(() => {
-    const saved = localStorage.getItem('chatuz_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('chatuz_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error('LocalStorage error:', e);
+      return null;
+    }
   });
 
   const [inQueue, setInQueue] = useState(false);
@@ -40,6 +45,7 @@ const App = () => {
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [isConnected, setIsConnected] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -51,7 +57,12 @@ const App = () => {
   const adminMsgEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Update local storage when userData changes
+  // Keep values for socket listeners to avoid closure issues
+  const stateRef = useRef({ userData, inQueue, partnerConnected });
+  useEffect(() => {
+    stateRef.current = { userData, inQueue, partnerConnected };
+  }, [userData, inQueue, partnerConnected]);
+
   useEffect(() => {
     if (userData) localStorage.setItem('chatuz_user', JSON.stringify(userData));
   }, [userData]);
@@ -60,10 +71,40 @@ const App = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Socket Connection
+  const clearMessages = useCallback(() => setMessages([]), []);
+
+  const handlePartnerDisconnect = useCallback((data?: { reason: string }) => {
+    setPartnerConnected(false);
+    setInQueue(true);
+    const leaveMsg = data?.reason === 'skipped'
+      ? "Suhbatdosh 'Keyingisi'ni bosdi. Yangi sirdosh qidirilmoqda..."
+      : "Suhbatdosh tark etdi. Yangi sirdosh qidirilmoqda...";
+    setMessages(prev => [...prev, { text: leaveMsg, sender: 'partner', timestamp: Date.now() }]);
+  }, []);
+
+  // Socket setup
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000
+    });
     socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Connected to socket server');
+      setIsConnected(true);
+      // If we were in queue or in chat, we need to rejoin if the connection dropped
+      if (stateRef.current.userData && (stateRef.current.inQueue || stateRef.current.partnerConnected)) {
+        socket.emit('join-queue', stateRef.current.userData);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected from socket server');
+      setIsConnected(false);
+    });
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
@@ -71,22 +112,15 @@ const App = () => {
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerNickname(data.partnerNickname);
-      setMessages([{
-        text: `Suhbatdosh topildi: ${data.partnerNickname}! 😊`,
+      setMessages(prev => [...prev, {
+        text: `Suhbatdosh topildi: ${data.partnerNickname}! Savol berishingiz yoki salom yuborishingiz mumkin.`,
         sender: 'partner',
         senderNickname: data.partnerNickname,
         timestamp: Date.now()
       }]);
     });
 
-    socket.on('partner-disconnected', (data?: { reason: string }) => {
-      setPartnerConnected(false);
-      setInQueue(true); // Server will put us back in queue, but we update UI
-      const leaveMsg = data?.reason === 'skipped'
-        ? "Suhbatdosh tark etdi (Keyingisi). Yangi qidirilmoqda..."
-        : "Suhbatdosh tark etdi. Yangi qidirilmoqda...";
-      setMessages(prev => [...prev, { text: leaveMsg, sender: 'partner', timestamp: Date.now() }]);
-    });
+    socket.on('partner-disconnected', handlePartnerDisconnect);
 
     socket.on('receive-message', (msg: any) => {
       setMessages(prev => [...prev, { ...msg, sender: 'partner' }]);
@@ -103,35 +137,43 @@ const App = () => {
     });
 
     return () => { socket.disconnect(); };
-  }, []);
+  }, [handlePartnerDisconnect]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => { adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [globalMessages]);
 
   const startChat = () => {
-    if (!userData) return;
+    if (!userData || !isConnected) return;
     setInQueue(true);
-    setMessages([]);
+    clearMessages();
     socketRef.current?.emit('join-queue', userData);
   };
 
   const nextChat = () => {
+    if (!isConnected) return;
     setPartnerConnected(false);
     setInQueue(true);
-    setMessages([]);
+    clearMessages();
     socketRef.current?.emit('next-user');
   };
 
-  const skipOrStop = () => {
+  const stopChat = () => {
     setInQueue(false);
     setPartnerConnected(false);
-    setMessages([]);
-    socketRef.current?.emit('next-user'); // Server will put us back, we need a 'stop' really
+    clearMessages();
+    socketRef.current?.emit('next-user'); // Moves user to queue, but we client-side stop
+  };
+
+  const handleReset = () => {
+    if (confirm('Barcha ma\'lumotlarni o\'chirib, boshidan boshlaysizmi?')) {
+      localStorage.removeItem('chatuz_user');
+      window.location.reload();
+    }
   };
 
   const sendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputValue.trim() || !partnerConnected) return;
+    if (!inputValue.trim() || !partnerConnected || !isConnected) return;
     const msg = { text: inputValue };
     socketRef.current?.emit('send-message', msg);
     setMessages(prev => [...prev, { text: inputValue, sender: 'me', senderNickname: userData?.nickname, timestamp: Date.now() }]);
@@ -140,7 +182,7 @@ const App = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !partnerConnected) return;
+    if (!file || !partnerConnected || !isConnected) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64Data = event.target?.result as string;
@@ -161,7 +203,6 @@ const App = () => {
       {showAdminPanel && isAdmin && (
         <div className="admin-overlay">
           <div className="admin-modal wide">
-            {/* Admin UI remains same as it was working */}
             <div className="admin-header">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="text-blue-500" />
@@ -207,7 +248,11 @@ const App = () => {
           CHAT<span>UZ</span>
         </div>
         <div className="header-info">
-          <div className="online-badge"><div className="dot"></div>{onlineCount} online</div>
+          {!isConnected && <div className="online-badge" style={{ background: '#ef4444' }}>Bog'lanish...</div>}
+          <div className="online-badge"><div className="dot"></div>{onlineCount} kishi</div>
+          <button className="theme-toggle-btn" onClick={handleReset} title="Boshidan boshlash">
+            <RefreshCw size={20} />
+          </button>
           <button className="theme-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
@@ -217,7 +262,7 @@ const App = () => {
       <main className="chat-main">
         {partnerConnected ? (
           <div className="partner-info-bar">
-            <User size={14} /> <span>Suhbatdosh: <strong>{partnerNickname}</strong></span>
+            <User size={14} /> <span>Suhbat: <strong>{partnerNickname}</strong></span>
             <button className="next-btn" onClick={nextChat}>KEYINGISI</button>
           </div>
         ) : (
@@ -225,14 +270,16 @@ const App = () => {
             {inQueue ? (
               <div className="loader-container">
                 <div className="spinner"></div>
-                <p>Siz navbatdasiz... Qidirilmoqda...</p>
-                <button className="skip-btn" onClick={skipOrStop} style={{ marginTop: '20px', background: 'rgba(255,255,255,0.1)', padding: '10px 20px', borderRadius: '10px' }}>TO'XTATISH</button>
+                <p>Navbatdasiz... Suhbatdosh kutilmoqda</p>
+                <button className="skip-btn" onClick={stopChat} style={{ marginTop: '20px', background: 'rgba(255,255,255,0.1)', padding: '10px 20px', borderRadius: '12px', fontSize: '14px' }}>TO'XTATISH</button>
               </div>
             ) : (
               <div className="start-prompt">
                 <Play size={48} />
-                <p>Nikingiz: <strong>{userData.nickname}</strong></p>
-                <button className="main-start-btn" onClick={startChat}>START</button>
+                <p>Assalomu alaykum, <strong>{userData.nickname}</strong></p>
+                <button className="main-start-btn" onClick={startChat} disabled={!isConnected}>
+                  {isConnected ? 'CHATNI BOSHLASH' : 'ULANILMOQDA...'}
+                </button>
               </div>
             )}
           </div>
@@ -265,9 +312,9 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">@secureXXX | {userData.nickname}</div>
+        <div className="author-tag">@secureXXX | Siz: {userData.nickname}</div>
         <div className="input-area">
-          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat}>
+          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat} title="Start / Keyingisi">
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
           </button>
           <div className="input-wrapper">
@@ -276,7 +323,7 @@ const App = () => {
             <input
               type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder={partnerConnected ? "Xabar..." : "Ulanmagan"}
+              placeholder={partnerConnected ? "Xabar yozing..." : "Suhbatdosh yo'q"}
               disabled={!partnerConnected}
             />
             <button className="send-btn" onClick={() => sendMessage()} disabled={!partnerConnected || !inputValue.trim()}><Send size={20} /></button>
