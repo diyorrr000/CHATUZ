@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, User, Send, Moon, Sun, Paperclip, Download, ShieldCheck, Activity, Users, Clock, RefreshCw, Eye, Users as UsersIcon, LogOut } from 'lucide-react';
+import { Play, Square, User, Send, Moon, Sun, Paperclip, Download, ShieldCheck, Activity, Users, Clock, RefreshCw, Eye, Users as UsersIcon, LogOut, Mic } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -8,6 +8,7 @@ const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
 interface Message {
   text?: string;
   file?: { name: string; type: string; data: string; };
+  audio?: string;
   sender: 'me' | 'partner' | 'system';
   senderNickname?: string;
   isAdmin?: boolean;
@@ -65,6 +66,7 @@ const App = () => {
 
   const [currentGroup, setCurrentGroup] = useState<{ roomId: string, name: string } | null>(null);
   const [invitation, setInvitation] = useState<{ roomId: string, roomName: string, inviter: string } | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -72,6 +74,8 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
   const partnerTypingTimeoutRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const typedKeys = useRef<string>('');
   const logoClicks = useRef<number>(0);
@@ -84,6 +88,50 @@ const App = () => {
   }, [userData]);
 
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Audio = reader.result as string;
+          const msg = { audio: base64Audio, roomId: currentGroup?.roomId };
+          socketRef.current?.emit('send-message', msg);
+          if (!currentGroup) {
+            setMessages(prev => [...prev, {
+              audio: base64Audio, sender: 'me', senderNickname: userData?.nickname,
+              isAdmin: isAdmin, isSuperAdmin: adminLevel === 'katta', timestamp: Date.now()
+            }]);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Mikrofonga ruxsat berilmadi:", err);
+      alert("Ovoz yozish uchun mikrofonga ruxsat berishingiz kerak.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
 
   const triggerAdminLogin = useCallback(() => {
     const pass = prompt('Admin paroli:');
@@ -387,6 +435,11 @@ const App = () => {
                     <a href={m.file.data} download={m.file.name} className="download-btn"><Download size={16} /></a>
                   </div>
                 )}
+                {m.audio && (
+                  <div className="audio-bubble" style={{ marginTop: '5px' }}>
+                    <audio src={m.audio} controls style={{ height: '35px', maxWidth: '210px' }} />
+                  </div>
+                )}
                 <span className="time">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             </div>
@@ -410,7 +463,22 @@ const App = () => {
             <button className="file-btn" onClick={() => fileInputRef.current?.click()} disabled={isSpying}><Paperclip size={20} /></button>
             <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSpying} />
             <input type="text" value={inputValue} onChange={handleInputChange} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder={isSpying ? "Spy rejimida yozish mumkin emas" : "Xabar..."} disabled={(!partnerConnected && !currentGroup) || isSpying} />
-            <button className="send-btn" onClick={() => sendMessage()} disabled={(!partnerConnected && !currentGroup) || !inputValue.trim() || isSpying}><Send size={20} /></button>
+            {inputValue.trim() ? (
+              <button className="send-btn" onClick={() => sendMessage()} disabled={isSpying}><Send size={20} /></button>
+            ) : (
+              <button
+                className={`send-btn ${isRecording ? 'recording' : ''}`}
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onMouseLeave={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+                disabled={(!partnerConnected && !currentGroup) || isSpying}
+                style={{ background: isRecording ? '#ef4444' : 'var(--accent)' }}
+              >
+                <Mic size={20} />
+              </button>
+            )}
           </div>
         </div>
       </footer>
