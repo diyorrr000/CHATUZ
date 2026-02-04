@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
+// Version: 1.0.5 - Triggering build
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
 
 interface Message {
@@ -56,7 +57,6 @@ const App = () => {
   const adminMsgEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Use a ref for userData to avoid socket reconnection on change
   const userDataRef = useRef(userData);
   useEffect(() => { userDataRef.current = userData; }, [userData]);
 
@@ -88,16 +88,12 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    console.log('Connecting to socket...');
     const socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5
+      reconnection: true
     });
     socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('Connected to server');
-    });
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
@@ -116,9 +112,7 @@ const App = () => {
     socket.on('partner-disconnected', (data?: { reason: string }) => {
       setPartnerConnected(false);
       setInQueue(true);
-      // Use ref to get the current nickname even in the closure
       socket.emit('join-queue', userDataRef.current);
-
       const leaveMessage = data?.reason === 'skipped'
         ? "Suhbatdosh 'Keyingisi' tugmasini bosdi. Yangi suhbatdosh qidirilmoqda..."
         : "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...";
@@ -132,7 +126,7 @@ const App = () => {
     socket.on('admin-auth-success', () => {
       setIsAdmin(true);
       setShowAdminPanel(true);
-      alert('Admin sifatida muvaffaqiyatli kirdingiz!');
+      alert('Admin muvaffaqiyatli kirdi!');
     });
 
     socket.on('admin-update', (data: AdminData) => setAdminData(data));
@@ -141,15 +135,10 @@ const App = () => {
     });
 
     return () => { socket.disconnect(); };
-  }, []); // Connect only once
+  }, []);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
-    adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [globalMessages]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [globalMessages]);
 
   const toggleChat = () => {
     if (!inQueue && !partnerConnected) {
@@ -194,15 +183,11 @@ const App = () => {
 
   const handleLogoClick = () => {
     logoClicks.current += 1;
-    if (logoClicks.current >= 5) {
-      triggerAdminLogin();
-      logoClicks.current = 0;
-    }
+    if (logoClicks.current >= 5) { triggerAdminLogin(); logoClicks.current = 0; }
     setTimeout(() => { logoClicks.current = 0; }, 3000);
   };
 
-  console.log('Current UserData:', userData);
-
+  // NICKNAME CHECK IS HERE
   if (!userData) {
     return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data: any) => setUserData(data)} />;
   }
@@ -215,7 +200,7 @@ const App = () => {
             <div className="admin-header">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="text-blue-500" />
-                <h2 style={{ color: 'white' }}>Live Monitoring Paneli</h2>
+                <h2 style={{ color: 'white' }}>Live Monitoring</h2>
               </div>
               <Activity className="text-blue-500 animate-pulse" />
               <button className="close-admin" onClick={() => setShowAdminPanel(false)}>Yopish</button>
@@ -243,9 +228,7 @@ const App = () => {
               <div className="admin-user-list scrollbar-hide">
                 <h3>FOYDALANUVCHILAR</h3>
                 <table>
-                  <thead>
-                    <tr><th>NIK</th><th>IP</th><th>STATUS</th></tr>
-                  </thead>
+                  <thead><tr><th>NIK</th><th>IP</th><th>STATUS</th></tr></thead>
                   <tbody>
                     {adminData?.users.map((u, i) => (
                       <tr key={i} className={u.id === socketRef.current?.id ? 'is-me' : ''}>
@@ -259,14 +242,13 @@ const App = () => {
               </div>
 
               <div className="admin-global-chat scrollbar-hide">
-                <h3>LIVE CHAT MONITORING</h3>
+                <h3>LIVE CHAT</h3>
                 <div className="admin-messages">
-                  {globalMessages.length === 0 && <p className="opacity-20 text-center mt-10">Hozircha xabarlar yo'q...</p>}
                   {globalMessages.map((gm, i) => (
                     <div key={i} className="admin-msg-row">
-                      <span className="time">{new Date(gm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                      <span className="time">{new Date(gm.timestamp).toLocaleTimeString()}</span>
                       <span className="ids">[{gm.from} → {gm.to}]</span>
-                      <span className="txt">{gm.hasFile ? "📎 FAYL YUBORDI" : gm.text}</span>
+                      <span className="txt">{gm.hasFile ? "📎 FAYL" : gm.text}</span>
                     </div>
                   ))}
                   <div ref={adminMsgEndRef} />
@@ -283,10 +265,7 @@ const App = () => {
           {isAdmin && <ShieldCheck size={14} className="inline ml-1 text-blue-500" />}
         </div>
         <div className="header-info">
-          <div className="online-badge">
-            <div className="dot"></div>
-            {onlineCount} kishi online
-          </div>
+          <div className="online-badge"><div className="dot"></div>{onlineCount} online</div>
           <button className="theme-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
@@ -302,14 +281,10 @@ const App = () => {
         ) : (
           <div className="search-status">
             {inQueue ? (
-              <div className="loader-container">
-                <div className="spinner"></div>
-                <p>Suhbatdosh qidirilmoqda...</p>
-              </div>
+              <div className="loader-container"><div className="spinner"></div><p>Qidirilmoqda...</p></div>
             ) : (
               <div className="start-prompt">
-                <Play size={48} />
-                <p>Salom, <strong>{userData?.nickname}</strong>! Suhbatni boshlang</p>
+                <Play size={48} /><p>Salom, <strong>{userData?.nickname}</strong>!</p>
                 <button className="main-start-btn" onClick={toggleChat}>START</button>
               </div>
             )}
@@ -329,14 +304,9 @@ const App = () => {
                     {m.file.type.startsWith('image/') ? (
                       <img src={m.file.data} alt={m.file.name} className="shared-image" />
                     ) : (
-                      <div className="file-info">
-                        <FileIcon size={24} />
-                        <span className="file-name">{m.file.name}</span>
-                      </div>
+                      <div className="file-info"><FileIcon size={24} /><span className="file-name">{m.file.name}</span></div>
                     )}
-                    <a href={m.file.data} download={m.file.name} className="download-btn">
-                      <Download size={16} />
-                    </a>
+                    <a href={m.file.data} download={m.file.name} className="download-btn"><Download size={16} /></a>
                   </div>
                 )}
                 <span className="time">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -348,9 +318,9 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">Muallif: @secureXXX | Sizning nikingiz: {userData?.nickname}</div>
+        <div className="author-tag">Muallif: @secureXXX | {userData?.nickname}</div>
         <div className="input-area">
-          <button className="action-btn" onClick={toggleChat} title={inQueue || partnerConnected ? "To'xtatish" : "Boshlash"}>
+          <button className="action-btn" onClick={toggleChat}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
           </button>
           <div className="input-wrapper">
@@ -359,7 +329,7 @@ const App = () => {
             <input
               type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder={partnerConnected ? "Xabar yozing..." : "Suhbatdosh ulanmagan"}
+              placeholder={partnerConnected ? "Xabar..." : "Suhbatdosh yo'q"}
               disabled={!partnerConnected}
             />
             <button className="send-btn" onClick={() => sendMessage()} disabled={!partnerConnected || !inputValue.trim()}><Send size={20} /></button>
