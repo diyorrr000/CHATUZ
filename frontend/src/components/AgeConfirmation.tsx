@@ -30,21 +30,20 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                 animate={{ scale: 1, opacity: 1 }}
                 className="landing-card"
             >
-                {/* Logo Section */}
                 <div className="landing-logo">
-                    <div style={{ width: '60px', height: '60px', border: '4px dashed rgba(255,255,255,0.4)', borderRadius: '50%', animation: 'spin 10s linear infinite' }}></div>
+                    <div style={{ width: '50px', height: '50px', border: '3px dashed rgba(255,255,255,0.4)', borderRadius: '50%', animation: 'spin 10s linear infinite' }}></div>
                 </div>
 
-                <h1 style={{ fontSize: '48px', fontWeight: '900', margin: '0 0 10px' }}>CHATUZ</h1>
+                <h1 style={{ fontSize: '36px', fontWeight: '900', margin: '0 0 5px' }}>CHATUZ</h1>
 
                 <div className="online-status">
                     <div className="online-dot"></div>
                     <span>{realOnlineCount} foydalanuvchi onlayn</span>
                 </div>
 
-                <p style={{ fontSize: '18px', fontWeight: '500', marginBottom: '30px', opacity: 0.8 }}>Yangi do'stlar orttiring</p>
+                <p style={{ fontSize: '16px', fontWeight: '500', marginBottom: '20px', opacity: 0.8 }}>Yangi do'stlar orttiring</p>
 
-                <div style={{ marginBottom: '30px' }}>
+                <div style={{ marginBottom: '20px' }}>
                     <select
                         value={country}
                         onChange={(e) => setCountry(e.target.value)}
@@ -79,7 +78,7 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                     </p>
                     <a href="#" style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: 'bold' }}>FOYDALANUVCHI SHARTNOMASI</a>
 
-                    <p style={{ marginTop: '20px', fontSize: '11px' }}>
+                    <p style={{ marginTop: '15px', fontSize: '10px' }}>
                         Dasturchi: <span style={{ opacity: 1 }}>SHONAZAROV DIYORBEK</span>
                     </p>
                 </div>

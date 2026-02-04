@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -16,6 +16,7 @@ const App = () => {
   const [messages, setMessages] = useState<{ text: string, sender: 'me' | 'partner' }[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -26,7 +27,10 @@ const App = () => {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
   };
 
-  // Pre-initialize socket even before AgeConfirmation to get online count
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
   useEffect(() => {
     socketRef.current = io(SOCKET_URL);
 
@@ -35,7 +39,6 @@ const App = () => {
     });
 
     socketRef.current.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      console.log('Match found! Initiator:', initiator);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
@@ -67,7 +70,6 @@ const App = () => {
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
-      // Wait a bit and rejoin queue if we were in it
       setInQueue(true);
     });
 
@@ -84,9 +86,6 @@ const App = () => {
     if (userData) {
       initMedia();
     }
-    return () => {
-      localStream?.getTracks().forEach(track => track.stop());
-    };
   }, [userData]);
 
   const initMedia = async () => {
@@ -103,7 +102,6 @@ const App = () => {
     resetPeerConnection();
     peerConnectionRef.current = new RTCPeerConnection(configuration);
 
-    // Safety: check localStream tracks
     if (localStream) {
       localStream.getTracks().forEach(track => {
         peerConnectionRef.current?.addTrack(track, localStream);
@@ -183,9 +181,8 @@ const App = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen w-full bg-[#0b1120]">
-      {/* Video Section */}
-      <div className="video-grid">
+    <div className="app-container">
+      <div className="video-section">
         <div className="video-box">
           <div className="badge">SIZ</div>
           <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
@@ -194,38 +191,37 @@ const App = () => {
               <CameraOff size={64} className="text-white/20" />
             </div>
           )}
-          {/* Overlay Mic/Cam Toggles */}
-          <div className="absolute bottom-4 right-4 flex gap-2">
-            <button onClick={toggleMic} className={`p-3 rounded-full ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {micOn ? <Mic size={20} /> : <MicOff size={20} />}
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button onClick={toggleMic} className={`p-2 rounded-lg ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
+              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
             </button>
-            <button onClick={toggleCam} className={`p-3 rounded-full ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {camOn ? <Camera size={20} /> : <CameraOff size={20} />}
+            <button onClick={toggleCam} className={`p-2 rounded-lg ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
+              {camOn ? <Camera size={18} /> : <CameraOff size={18} />}
             </button>
           </div>
         </div>
 
         <div className="video-box">
-          <div className="badge">{partnerConnected ? "SUHBATDOSH" : "IDIRILMOQDA..."}</div>
+          <div className="badge">{partnerConnected ? "SUHBATDOSH" : "QIDIRILMOQDA..."}</div>
           {partnerConnected ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline />
-              <div className="absolute bottom-4 left-4 glass px-4 py-2 text-xs flex gap-4">
-                <span className="flex items-center gap-1"><Globe size={14} /> {partnerData?.country}</span>
-                <span className="flex items-center gap-1"><User size={14} /> {partnerData?.age} yosh</span>
+              <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
+                <span className="flex items-center gap-1"><Globe size={12} /> {partnerData?.country}</span>
+                <span className="flex items-center gap-1"><User size={12} /> {partnerData?.age} yosh</span>
               </div>
             </>
           ) : (
             <div className="h-full flex flex-col items-center justify-center bg-gray-900/40">
               {inQueue ? (
                 <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-blue-400 font-bold tracking-widest text-sm">SUHBATDOSH QIDIRILMOQDA...</span>
+                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-blue-400 font-bold tracking-widest text-[10px]">QIDIRILMOQDA...</span>
                 </div>
               ) : (
                 <div className="text-center opacity-30">
-                  <Play size={80} />
-                  <p className="mt-4 font-bold uppercase tracking-widest text-xs">Boshlash tugmasini bosing</p>
+                  <Play size={60} />
+                  <p className="mt-4 font-bold uppercase tracking-widest text-[10px]">BOSHLASHNI BOSING</p>
                 </div>
               )}
             </div>
@@ -233,74 +229,67 @@ const App = () => {
           {partnerConnected && (
             <button
               onClick={() => { socketRef.current?.emit('report-user'); nextUser(); }}
-              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500 transition-all"
-              title="Report"
+              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500"
             >
-              <AlertCircle size={20} />
+              <AlertCircle size={18} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Bottom Panel */}
-      <div className="bottom-panel relative">
-        <div className="main-controls">
-          <div
-            onClick={toggleChat}
-            className={`control-block ${inQueue || partnerConnected ? 'active' : ''}`}
-          >
-            {inQueue || partnerConnected ? <Square size={32} /> : <Play size={32} fill="currentColor" />}
-            <span>{inQueue || partnerConnected ? "Stop" : "Start"}</span>
+      <div className="bottom-panel">
+        <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
+          {theme === 'dark' ? <Sun size={20} color="#facc15" /> : <Moon size={20} color="#3b82f6" />}
+        </button>
+
+        <div className="controls-group">
+          <div onClick={toggleChat} className={`control-item ${(inQueue || partnerConnected) ? 'active' : ''}`}>
+            {(inQueue || partnerConnected) ? <Square size={28} /> : <Play size={28} fill="currentColor" />}
+            <span>{(inQueue || partnerConnected) ? "Stop" : "Start"}</span>
           </div>
 
-          <div
-            onClick={nextUser}
-            className={`control-block ${!inQueue && !partnerConnected ? 'disabled' : ''}`}
-          >
-            <SkipForward size={32} fill="currentColor" />
-            <span>Keyingisi</span>
+          <div onClick={nextUser} className={`control-item ${(!inQueue && !partnerConnected) ? 'disabled' : ''}`}>
+            <SkipForward size={28} fill="currentColor" />
+            <span>Keyingi</span>
           </div>
 
-          <div className="control-block active">
-            <Globe size={32} />
+          <div className="control-item active hidden md:flex">
+            <Globe size={28} />
             <span>{userData.country.split(' (')[0]}</span>
-          </div>
-
-          <div className="control-block active hidden sm:flex">
-            <User size={32} />
-            <span>{onlineCount} Real</span>
           </div>
         </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col max-w-[500px] h-[100px] bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-hide text-xs">
-            {messages.length === 0 && <p className="text-center text-white/20 mt-4">Suhbat hali boshlanmadi...</p>}
+        <div className="chat-container">
+          <div className="chat-messages scrollbar-hide">
+            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Xabarlar yo'q...</p>}
             {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`px-3 py-1.5 rounded-xl ${m.sender === 'me' ? 'bg-blue-600' : 'bg-white/10'}`}>
+              <div key={i} style={{ textAlign: m.sender === 'me' ? 'right' : 'left', marginBottom: '4px' }}>
+                <span style={{
+                  display: 'inline-block',
+                  padding: '4px 10px',
+                  borderRadius: '10px',
+                  backgroundColor: m.sender === 'me' ? '#3b82f6' : 'rgba(255,255,255,0.1)',
+                  color: 'white'
+                }}>
                   {m.text}
-                </div>
+                </span>
               </div>
             ))}
           </div>
-          <form onSubmit={sendMessage} className="h-10 border-t border-white/10 flex items-center px-2 gap-2">
+          <form onSubmit={sendMessage} className="chat-form">
             <input
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Xabar yozing (Enter)"
-              className="flex-1 bg-transparent border-none outline-none text-sm text-white"
+              placeholder="Xabar..."
             />
-            <button type="submit" className="text-blue-500 hover:text-blue-400">
+            <button type="submit" style={{ background: 'transparent', border: 'none', color: '#3b82f6', padding: '0 10px', cursor: 'pointer' }}>
               <Send size={18} />
             </button>
           </form>
         </div>
 
-        <div className="absolute right-4 bottom-2 text-[10px] text-white/20 font-bold tracking-widest hidden lg:block">
-          YARATUVCHI: SHONAZAROV DIYORBEK
-        </div>
+        <div className="dev-credit">YARATUVCHI: SHONAZAROV DIYORBEK</div>
       </div>
     </div>
   );
