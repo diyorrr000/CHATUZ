@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, AlertTriangle, MessageSquare, Send, Globe, User } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, AlertTriangle, MessageSquare, Send, Globe, User, PhoneOff } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -43,10 +43,9 @@ const App = () => {
     socketRef.current = io(SOCKET_URL);
 
     socketRef.current.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      console.log('Match found with:', partnerId);
       setInQueue(false);
       setPartnerConnected(true);
-      setPartnerData(partnerInfo || { age: 'Noma\'lum', country: 'Noma\'lum' });
+      setPartnerData(partnerInfo);
       setMessages([]);
 
       createPeerConnection(partnerId);
@@ -60,7 +59,6 @@ const App = () => {
 
     socketRef.current.on('signal', async (data) => {
       if (!peerConnectionRef.current) return;
-
       if (data.type === 'offer') {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
         const answer = await peerConnectionRef.current.createAnswer();
@@ -72,7 +70,7 @@ const App = () => {
         try {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (e) {
-          console.error('Error adding ice candidate', e);
+          console.error(e);
         }
       }
     });
@@ -93,11 +91,8 @@ const App = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setLocalStream(stream);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     } catch (err) {
-      console.error('Error accessing media devices:', err);
       alert('Kamera va mikrofonga ruxsat berilishi shart!');
     }
   };
@@ -105,17 +100,10 @@ const App = () => {
   const createPeerConnection = (partnerId: string) => {
     resetPeerConnection();
     peerConnectionRef.current = new RTCPeerConnection(configuration);
-
-    localStream?.getTracks().forEach(track => {
-      peerConnectionRef.current?.addTrack(track, localStream);
-    });
-
+    localStream?.getTracks().forEach(track => peerConnectionRef.current?.addTrack(track, localStream));
     peerConnectionRef.current.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
-
     peerConnectionRef.current.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
@@ -178,154 +166,119 @@ const App = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen w-full text-white">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 glass m-4 mb-0">
-        <div className="flex items-center gap-6">
-          <h1 className="text-2xl font-bold tracking-tighter" style={{ background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            CHATUZ
-          </h1>
-          <div className="hidden md:flex items-center gap-4 text-xs text-gray-400">
-            <div className="flex items-center gap-1"><Globe size={12} /> {userData.country}</div>
-            <div className="flex items-center gap-1"><User size={12} /> {userData.age} yosh</div>
+    <div className="flex h-screen w-full overflow-hidden text-white font-sans">
+      {/* Video Content Area */}
+      <div className="flex-1 relative flex flex-col p-4 gap-4">
+        {/* Top Floating Header */}
+        <div className="absolute top-8 left-8 right-8 z-20 flex justify-between items-center bg-black/20 backdrop-blur-xl p-4 rounded-3xl border border-white/10">
+          <div className="flex items-center gap-6">
+            <h1 className="text-3xl font-black tracking-tighter bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">CHATUZ</h1>
+            <div className="hidden md:flex gap-4 items-center">
+              <div className="status-badge"><Globe size={14} /> {userData.country}</div>
+              <div className="status-badge"><User size={14} /> {userData.age} yosh</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-sm font-semibold text-white/70">
+              {partnerConnected ? 'Bog\'langan' : inQueue ? 'Navbatda...' : 'Tayyor'}
+            </div>
+            {partnerConnected && <div className="online-dot animate-pulse"></div>}
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400 font-medium">
-            {partnerConnected ? 'Bog\'langan' : inQueue ? 'Qidirilmoqda...' : 'Tayyor'}
-          </span>
-          <div className={`w-3 h-3 rounded-full ${partnerConnected ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : inQueue ? 'bg-yellow-500 animate-pulse' : 'bg-gray-500'}`}></div>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-        {/* Videos Container */}
-        <div className="flex-1 flex flex-col gap-4">
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 relative">
-            {/* Local Video */}
-            <div className="relative glass overflow-hidden rounded-2xl bg-black/40">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover"
-                style={{ transform: 'scaleX(-1)' }}
-              />
-              <div className="absolute top-4 left-4 glass px-3 py-1 text-xs flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-indigo-500"></div> Siz
+        {/* The Video Grid */}
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 mt-24 pb-20">
+          {/* Local Video */}
+          <div className="video-container group">
+            <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
+            <div className="absolute top-4 left-4 glass px-4 py-2 text-xs font-bold uppercase tracking-widest">SIZ</div>
+            {!camOn && (
+              <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+                <CameraOff size={64} className="text-indigo-500/30" />
               </div>
-              {!camOn && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 backdrop-blur-sm">
-                  <CameraOff size={48} className="text-indigo-500/50" />
-                </div>
-              )}
-            </div>
-
-            {/* Remote Video */}
-            <div className="relative glass overflow-hidden rounded-2xl bg-black/40">
-              {partnerConnected ? (
-                <>
-                  <video
-                    ref={remoteVideoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute top-4 left-4 glass px-3 py-1 text-xs flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div> Suhbatdosh
-                    </div>
-                    {partnerData && (
-                      <div className="text-[10px] text-gray-400 flex gap-2">
-                        <span>{partnerData.country}</span>
-                        <span>{partnerData.age} yosh</span>
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center space-y-6">
-                  <div className="relative">
-                    <div className="w-20 h-20 border-2 border-indigo-500/20 rounded-full"></div>
-                    <div className="absolute inset-0 w-20 h-20 border-t-2 border-indigo-500 rounded-full animate-spin"></div>
-                  </div>
-                  <div className="text-center group">
-                    <p className="text-indigo-400 font-medium tracking-wide">{inQueue ? 'Suhbatdosh qidirilmoqda...' : 'Muloqotni boshlashga tayyormisiz?'}</p>
-                    {!inQueue && <p className="text-gray-500 text-xs mt-2">Pastdagi "Boshlash" tugmasini bosing</p>}
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* Controls */}
-          <div className="glass p-6 flex flex-wrap items-center justify-center gap-6">
-            {!inQueue && !partnerConnected ? (
-              <button onClick={startChat} className="primary-btn px-16 py-5 text-xl">Boshlash</button>
-            ) : (
+          {/* Remote Video */}
+          <div className="video-container">
+            {partnerConnected ? (
               <>
-                <div className="flex items-center gap-3">
-                  <button onClick={toggleMic} className={`p-4 rounded-2xl transition-all duration-300 ${micOn ? 'secondary-btn' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} title="Mikrofonni o‘chirish">
-                    {micOn ? <Mic size={24} /> : <MicOff size={24} />}
-                  </button>
-                  <button onClick={toggleCam} className={`p-4 rounded-2xl transition-all duration-300 ${camOn ? 'secondary-btn' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} title="Kamerani o‘chirish">
-                    {camOn ? <Camera size={24} /> : <CameraOff size={24} />}
-                  </button>
+                <video ref={remoteVideoRef} autoPlay playsInline />
+                <div className="absolute top-4 left-4 flex flex-col gap-2">
+                  <div className="glass px-4 py-2 text-xs font-bold uppercase tracking-widest">SUHBATDOSH</div>
+                  <div className="glass px-3 py-1.5 text-[10px] flex items-center gap-2">
+                    <span>{partnerData?.country}</span>
+                    <span>•</span>
+                    <span>{partnerData?.age} yosh</span>
+                  </div>
                 </div>
-                <button onClick={nextUser} className="primary-btn flex items-center gap-3 px-10">
-                  <SkipForward size={22} fill="currentColor" /> Keyingisi
-                </button>
-                <button onClick={reportUser} className="danger-btn flex items-center gap-2 p-4" title="Shikoyat qilish">
-                  <AlertTriangle size={24} />
-                </button>
               </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center bg-zinc-900/50 space-y-6">
+                {!inQueue ? (
+                  <button onClick={startChat} className="primary-btn px-12 py-4 text-xl pulse">Boshlash</button>
+                ) : (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-indigo-400 font-bold tracking-widest animate-pulse">QIDIRILMOQDA...</p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Chat Sidebar */}
-        <div className="w-full md:w-96 flex flex-col glass overflow-hidden">
-          <div className="p-4 border-b border-white/5 font-bold flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-400">
-              <MessageSquare size={18} /> Chat
-            </div>
-            {partnerConnected && partnerData && (
-              <span className="text-[10px] bg-white/5 px-2 py-1 rounded-full text-gray-400">
-                {partnerData.country}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
-            {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-gray-500 text-sm opacity-50 space-y-2">
-                <MessageSquare size={32} />
-                <p>Xabarlar hali mavjud emas</p>
-              </div>
-            )}
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm shadow-sm ${msg.sender === 'me' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white/5 text-gray-200 rounded-tl-none border border-white/5'}`}>
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={sendMessage} className="p-4 border-t border-white/5 flex gap-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Xabar yozing..."
-              className="flex-1 text-sm"
-            />
-            <button type="submit" className="p-3 bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20">
-              <Send size={18} />
-            </button>
-          </form>
+        {/* Floating Controls */}
+        <div className="controls-overlay">
+          <button onClick={toggleMic} className={micOn ? "secondary-btn" : "danger-btn"} title="Mic">
+            {micOn ? <Mic size={24} /> : <MicOff size={24} />}
+          </button>
+          <button onClick={toggleCam} className={camOn ? "secondary-btn" : "danger-btn"} title="Cam">
+            {camOn ? <Camera size={24} /> : <CameraOff size={24} />}
+          </button>
+          <button onClick={nextUser} className="primary-btn px-8" title="Keyingisi">
+            <SkipForward size={24} fill="white" />
+            <span className="hidden md:inline font-bold">KEYINGISI</span>
+          </button>
+          <button onClick={reportUser} className="danger-btn" title="Report">
+            <AlertTriangle size={24} />
+          </button>
         </div>
-      </main>
+      </div>
+
+      {/* Chat Sidebar */}
+      <div className="chat-panel">
+        <div className="p-6 border-b border-white/10 flex items-center gap-2 text-indigo-400 font-bold text-lg">
+          <MessageSquare size={20} /> CHAT
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+          {messages.length === 0 && (
+            <div className="h-full flex items-center justify-center opacity-20 flex-col gap-4">
+              <MessageSquare size={48} />
+              <p className="text-sm font-medium">Suhbatni boshlang...</p>
+            </div>
+          )}
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm ${msg.sender === 'me' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white/10 rounded-bl-none'}`}>
+                {msg.text}
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={sendMessage} className="p-4 border-t border-white/10 flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="Xabar..."
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+          />
+          <button type="submit" className="p-3 bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-all">
+            <Send size={20} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
