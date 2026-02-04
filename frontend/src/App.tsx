@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, RefreshCw } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, Info } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -17,7 +17,8 @@ const App = () => {
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [connStatus, setConnStatus] = useState<string>('');
+  const [debugLog, setDebugLog] = useState<string>('Tizim tayyor');
+  const [iceState, setIceState] = useState<string>('new');
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -31,9 +32,8 @@ const App = () => {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478' }
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:stun.nextcloud.com:443' }
     ],
     iceCandidatePoolSize: 10,
   };
@@ -43,39 +43,31 @@ const App = () => {
   }, [theme]);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
-      autoConnect: true
-    });
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
-    socket.on('online-count', (count: number) => {
-      setOnlineCount(count);
-    });
+    socket.on('online-count', (count: number) => setOnlineCount(count));
 
     socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      console.log('Match found. Initiator:', initiator);
+      setDebugLog('Suhbatdosh topildi...');
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
-      setConnStatus('Ulanishga urinish...');
 
       const pc = createPeerConnection(partnerId);
 
       if (initiator) {
-        // Initiator creates the offer
-        try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          });
-          await pc.setLocalDescription(offer);
-          socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
-        } catch (err) {
-          console.error('Failed to create offer:', err);
-        }
+        setTimeout(async () => {
+          try {
+            setDebugLog('So\'rov yuborilmoqda...');
+            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+            await pc.setLocalDescription(offer);
+            socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
+          } catch (err) {
+            setDebugLog('Offer xatosi: ' + err);
+          }
+        }, 1500); // 1.5s delay for better stability
       }
 
       while (pendingSignals.current.length > 0) {
@@ -94,6 +86,7 @@ const App = () => {
     });
 
     socket.on('partner-disconnected', () => {
+      setDebugLog('Suhbatdosh tark etdi');
       handlePartnerLeave();
     });
 
@@ -101,14 +94,13 @@ const App = () => {
       setMessages(prev => [...prev, msg]);
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, []);
 
   const handleSignal = async (data: any, pc: RTCPeerConnection) => {
     try {
       if (data.type === 'offer') {
+        setDebugLog('Taklif keldi, javob berilmoqda...');
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
         while (pendingCandidates.current.length > 0) {
           const candidate = pendingCandidates.current.shift();
@@ -118,6 +110,7 @@ const App = () => {
         await pc.setLocalDescription(answer);
         socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
       } else if (data.type === 'answer') {
+        setDebugLog('Javob keldi, ulanmoqda...');
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
         while (pendingCandidates.current.length > 0) {
           const candidate = pendingCandidates.current.shift();
@@ -131,7 +124,7 @@ const App = () => {
         }
       }
     } catch (err) {
-      console.error('Signaling error:', err);
+      setDebugLog('Signals xatosi: ' + err);
     }
   };
 
@@ -139,7 +132,6 @@ const App = () => {
     resetPeerConnection();
     setPartnerConnected(false);
     setPartnerData(null);
-    setConnStatus('');
     setInQueue(true);
     socketRef.current?.emit('join-queue', userData);
   };
@@ -158,47 +150,31 @@ const App = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setLocalStream(stream);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      setDebugLog('Kamera tayyor');
       return stream;
     } catch (err) {
-      console.error('Media error:', err);
+      setDebugLog('Kamera xatosi: ' + err);
       alert('Kamera va mikrofonga ruxsat bering!');
     }
   };
 
   const createPeerConnection = (partnerId: string) => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
+    resetPeerConnection();
+    pendingCandidates.current = [];
 
     const pc = new RTCPeerConnection(configuration);
     peerConnectionRef.current = pc;
-    pendingCandidates.current = [];
 
     if (localStream) {
-      localStream.getTracks().forEach(track => {
-        pc.addTrack(track, localStream);
-      });
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
     }
 
-    // Modern ontrack listener
     pc.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind);
-      if (remoteVideoRef.current) {
-        if (event.streams && event.streams[0]) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-        } else {
-          // Fallback for some browsers
-          if (!remoteVideoRef.current.srcObject) {
-            remoteVideoRef.current.srcObject = new MediaStream([event.track]);
-          } else {
-            (remoteVideoRef.current.srcObject as MediaStream).addTrack(event.track);
-          }
-        }
-        // Auto-play attempt
-        setConnStatus('');
+      setDebugLog('Video oqimi qabul qilindi');
+      if (remoteVideoRef.current && event.streams[0]) {
+        remoteVideoRef.current.srcObject = event.streams[0];
         remoteVideoRef.current.play().catch(e => {
-          console.warn('Autoplay prevented:', e);
-          setConnStatus('Videoni yoqish uchun shu erni bosing');
+          setDebugLog('Avtomatik ijro to\'sildi');
         });
       }
     };
@@ -210,14 +186,10 @@ const App = () => {
     };
 
     pc.oniceconnectionstatechange = () => {
-      const state = pc.iceConnectionState;
-      console.log('ICE Connection State:', state);
-      if (state === 'connected' || state === 'completed') {
-        setConnStatus('');
-      } else if (state === 'failed') {
-        setConnStatus('Ulanishda xato (Proksi/VPN o\'chiring)');
-      } else if (state === 'checking') {
-        setConnStatus('Ulanish tekshirilmoqda...');
+      setIceState(pc.iceConnectionState);
+      console.log('ICE:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        setDebugLog('Ulanish amalga oshmadi (VPN/Firewall)');
       }
     };
 
@@ -234,6 +206,7 @@ const App = () => {
     }
     pendingCandidates.current = [];
     pendingSignals.current = [];
+    setIceState('new');
   };
 
   const toggleChat = () => {
@@ -245,7 +218,6 @@ const App = () => {
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
-      setConnStatus('');
       socketRef.current?.emit('next-user');
     }
   };
@@ -255,7 +227,6 @@ const App = () => {
     setPartnerConnected(false);
     setPartnerData(null);
     setMessages([]);
-    setConnStatus('');
     setInQueue(true);
     socketRef.current?.emit('next-user');
   };
@@ -284,12 +255,6 @@ const App = () => {
     setInputValue('');
   };
 
-  const forcePlayRemote = () => {
-    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
-      remoteVideoRef.current.play().then(() => setConnStatus('')).catch(console.error);
-    }
-  };
-
   if (!userData) {
     return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
   }
@@ -297,38 +262,39 @@ const App = () => {
   return (
     <div className="app-container">
       <div className="video-section">
+        {/* Local Video */}
         <div className="video-box">
           <div className="badge">SIZ</div>
           <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
           {!camOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-950">
               <CameraOff size={64} className="text-white/20" />
             </div>
           )}
           <div className="absolute top-4 right-4 flex gap-2">
             <button onClick={toggleMic} className={`p-2 rounded-lg ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {micOn ? <Mic size={20} /> : <MicOff size={20} />}
+              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
             </button>
             <button onClick={toggleCam} className={`p-2 rounded-lg ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {camOn ? <Camera size={20} /> : <CameraOff size={20} />}
+              {camOn ? <Camera size={18} /> : <CameraOff size={18} />}
             </button>
           </div>
         </div>
 
-        <div className="video-box" onClick={forcePlayRemote}>
+        {/* Remote Video */}
+        <div className="video-box" onClick={() => remoteVideoRef.current?.play()}>
           <div className="badge">{partnerConnected ? "SUHBATDOSH" : "QIDIRILMOQDA..."}</div>
           {partnerConnected ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline />
-              {connStatus && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm z-10 text-center p-6">
-                  <div className="bg-blue-600 p-4 rounded-full mb-4 animate-bounce">
-                    <RefreshCw className="text-white" size={32} />
+              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                {(iceState === 'checking' || iceState === 'new') && (
+                  <div className="flex flex-col items-center bg-black/40 p-4 rounded-2xl backdrop-blur-sm">
+                    <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
+                    <span className="text-white text-[10px] uppercase font-bold tracking-widest">{debugLog}</span>
                   </div>
-                  <p className="text-white font-bold text-sm mb-2">{connStatus}</p>
-                  <p className="text-white/60 text-xs">Video chiqishi uchun bu erni bosing</p>
-                </div>
-              )}
+                )}
+              </div>
               <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
                 <span className="flex items-center gap-1"><Globe size={12} /> {partnerData?.country}</span>
                 <span className="flex items-center gap-1"><User size={12} /> {partnerData?.age} yosh</span>
@@ -352,11 +318,23 @@ const App = () => {
           {partnerConnected && (
             <button
               onClick={(e) => { e.stopPropagation(); socketRef.current?.emit('report-user'); nextUser(); }}
-              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500 z-20"
+              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500"
             >
-              <AlertCircle size={20} />
+              <AlertCircle size={18} />
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Debug Mini Info Bar */}
+      <div className="bg-blue-600/10 border-y border-white/5 px-4 py-1 flex items-center justify-between text-[9px] font-bold text-blue-400 uppercase tracking-tighter">
+        <div className="flex items-center gap-2">
+          <Info size={10} />
+          <span>STATUS: {debugLog}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>ICE: {iceState}</span>
+          <div className={`w-1.5 h-1.5 rounded-full ${iceState === 'connected' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
         </div>
       </div>
 
@@ -367,24 +345,19 @@ const App = () => {
 
         <div className="controls-group">
           <div onClick={toggleChat} className={`control-item ${(inQueue || partnerConnected) ? 'active' : ''}`}>
-            {(inQueue || partnerConnected) ? <Square size={32} /> : <Play size={32} fill="currentColor" />}
-            <span>{(inQueue || partnerConnected) ? "Stop" : "Start"}</span>
+            {(inQueue || partnerConnected) ? <Square size={28} /> : <Play size={28} fill="currentColor" />}
+            <span>{(inQueue || partnerConnected) ? "STOP" : "START"}</span>
           </div>
 
           <div onClick={nextUser} className={`control-item ${(!inQueue && !partnerConnected) ? 'disabled' : ''}`}>
-            <SkipForward size={32} fill="currentColor" />
-            <span>Keyingi</span>
-          </div>
-
-          <div className="control-item active hidden md:flex">
-            <Globe size={32} />
-            <span>{userData.country.split(' (')[0]}</span>
+            <SkipForward size={28} fill="currentColor" />
+            <span>KEYINGISI</span>
           </div>
         </div>
 
         <div className="chat-container">
           <div className="chat-messages scrollbar-hide">
-            {messages.length === 0 && <p className="text-center opacity-20 mt-4">{partnerConnected ? 'Salom bering!' : 'Xabarlar yo\'q...'}</p>}
+            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Xabarlar yo'q...</p>}
             {messages.map((m, i) => (
               <div key={i} style={{ textAlign: m.sender === 'me' ? 'right' : 'left', marginBottom: '4px' }}>
                 <span style={{
@@ -400,19 +373,12 @@ const App = () => {
             ))}
           </div>
           <form onSubmit={sendMessage} className="chat-form">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Xabar..."
-            />
-            <button type="submit" style={{ background: 'transparent', border: 'none', color: '#3b82f6', padding: '0 10px', cursor: 'pointer' }}>
-              <Send size={20} />
+            <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Xabar..." />
+            <button type="submit" style={{ background: 'transparent', border: 'none', color: '#3b82f6', padding: '0 10px' }}>
+              <Send size={18} />
             </button>
           </form>
         </div>
-
-        <div className="dev-credit">YARATUVCHI: SHONAZAROV DIYORBEK</div>
       </div>
     </div>
   );
