@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2 } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -17,100 +17,82 @@ const App = () => {
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [connStatus, setConnStatus] = useState<string>('');
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  const pendingSignals = useRef<any[]>([]);
 
   const configuration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+    ],
+    iceCandidatePoolSize: 10,
   };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Handle Socket Connection
   useEffect(() => {
     const socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      upgrade: false
+      transports: ['websocket', 'polling'], // Fallback allowed
+      reconnectionAttempts: 5
     });
     socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('Connected to server:', socket.id);
-    });
 
     socket.on('online-count', (count: number) => {
       setOnlineCount(count);
     });
 
     socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      console.log('Match found with:', partnerId);
+      console.log('Match found. Initiator:', initiator);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
+      setConnStatus('Ulanmoqda...');
 
       const pc = createPeerConnection(partnerId);
 
       if (initiator) {
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
-        } catch (err) {
-          console.error('Offer error:', err);
-        }
+        // Wait 800ms to let the other side initialize their PC
+        setTimeout(async () => {
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
+          } catch (err) {
+            console.error('Offer error:', err);
+          }
+        }, 800);
+      }
+
+      // Process any signals that arrived before match-found
+      while (pendingSignals.current.length > 0) {
+        const sig = pendingSignals.current.shift();
+        handleSignal(sig, pc);
       }
     });
 
     socket.on('signal', async (data) => {
       const pc = peerConnectionRef.current;
-      if (!pc) return;
-
-      try {
-        if (data.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          while (pendingCandidates.current.length > 0) {
-            const candidate = pendingCandidates.current.shift();
-            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
-        } else if (data.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          while (pendingCandidates.current.length > 0) {
-            const candidate = pendingCandidates.current.shift();
-            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-        } else if (data.type === 'candidate' && data.candidate) {
-          if (pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          } else {
-            pendingCandidates.current.push(data.candidate);
-          }
-        }
-      } catch (err) {
-        console.error('Signaling error:', err);
+      if (!pc) {
+        pendingSignals.current.push(data);
+        return;
       }
+      handleSignal(data, pc);
     });
 
     socket.on('partner-disconnected', () => {
-      console.log('Partner left');
-      resetPeerConnection();
-      setPartnerConnected(false);
-      setPartnerData(null);
-      // Auto-rejoin if we were previously in a state that should be searching
-      setInQueue(true);
+      handlePartnerLeave();
     });
 
     socket.on('receive-message', (msg) => {
@@ -122,11 +104,48 @@ const App = () => {
     };
   }, []);
 
-  // Automatic media and queue join after age confirmation
+  const handleSignal = async (data: any, pc: RTCPeerConnection) => {
+    try {
+      if (data.type === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        while (pendingCandidates.current.length > 0) {
+          const candidate = pendingCandidates.current.shift();
+          if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
+      } else if (data.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        while (pendingCandidates.current.length > 0) {
+          const candidate = pendingCandidates.current.shift();
+          if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } else if (data.type === 'candidate' && data.candidate) {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          pendingCandidates.current.push(data.candidate);
+        }
+      }
+    } catch (err) {
+      console.error('Signaling error:', err);
+    }
+  };
+
+  const handlePartnerLeave = () => {
+    resetPeerConnection();
+    setPartnerConnected(false);
+    setPartnerData(null);
+    setConnStatus('');
+    // Automatically resume search if user didn't stop manually
+    setInQueue(true);
+    socketRef.current?.emit('join-queue', userData);
+  };
+
   useEffect(() => {
     if (userData) {
       initMedia().then(() => {
-        // Immediately join queue after getting media
         setInQueue(true);
         socketRef.current?.emit('join-queue', userData);
       });
@@ -141,7 +160,7 @@ const App = () => {
       return stream;
     } catch (err) {
       console.error('Media Access Denied:', err);
-      alert('Iltimos, kamera va mikrofonga ruxsat bering!');
+      alert('Kamera va mikrofonga ruxsat bering!');
     }
   };
 
@@ -159,13 +178,24 @@ const App = () => {
     }
 
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+      console.log('Stream received from partner');
+      setConnStatus(''); // Connected!
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteVideoRef.current.play().catch(console.error);
+      }
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE Connection:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected') setConnStatus('');
+      if (pc.iceConnectionState === 'failed') setConnStatus('Ulanish xatosi (Firewall)');
     };
 
     return pc;
@@ -180,6 +210,7 @@ const App = () => {
       remoteVideoRef.current.srcObject = null;
     }
     pendingCandidates.current = [];
+    pendingSignals.current = [];
   };
 
   const toggleChat = () => {
@@ -191,6 +222,7 @@ const App = () => {
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
+      setConnStatus('');
       socketRef.current?.emit('next-user');
     }
   };
@@ -200,6 +232,7 @@ const App = () => {
     setPartnerConnected(false);
     setPartnerData(null);
     setMessages([]);
+    setConnStatus('');
     setInQueue(true);
     socketRef.current?.emit('next-user');
   };
@@ -258,6 +291,12 @@ const App = () => {
           {partnerConnected ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline />
+              {connStatus && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm z-10">
+                  <Loader2 className="animate-spin text-blue-500 mb-2" size={40} />
+                  <span className="text-white text-xs font-bold">{connStatus}</span>
+                </div>
+              )}
               <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
                 <span className="flex items-center gap-1"><Globe size={12} /> {partnerData?.country}</span>
                 <span className="flex items-center gap-1"><User size={12} /> {partnerData?.age} yosh</span>
@@ -313,7 +352,7 @@ const App = () => {
 
         <div className="chat-container">
           <div className="chat-messages scrollbar-hide">
-            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Xabarlar yo'q...</p>}
+            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Suhbat - {partnerConnected ? 'Salom bering!' : 'Hali boshlanmadi'}</p>}
             {messages.map((m, i) => (
               <div key={i} style={{ textAlign: m.sender === 'me' ? 'right' : 'left', marginBottom: '4px' }}>
                 <span style={{
