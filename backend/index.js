@@ -17,8 +17,10 @@ const PORT = process.env.PORT || 5000;
 let waitingQueue = [];
 const activeChats = new Map(); // socket.id -> { partnerId, pairId }
 const users = new Map(); // socket.id -> { nickname, ip, uid }
-const currentAdmins = new Set(); // socket.id of active admins
+const currentAdmins = new Set(); // socket.id of active admins (any level)
+const superAdmins = new Set(); // socket.id of users who logged in with password
 const permanentAdmins = new Set(); // uids of permanent admins
+const groupRooms = new Map(); // roomId -> { name, creatorId, members: Set(socket.id) }
 
 function getClientIP(socket) {
     const forwarded = socket.handshake.headers['x-forwarded-for'];
@@ -26,17 +28,31 @@ function getClientIP(socket) {
 }
 
 function broadcastAdminUpdate() {
-    const userList = Array.from(users.entries()).map(([id, data]) => ({
-        id,
-        nickname: data.nickname,
-        ip: data.ip,
-        uid: data.uid,
-        isAdmin: currentAdmins.has(id) || (data.uid && permanentAdmins.has(data.uid)),
-        status: activeChats.has(id) ? 'Chatda' : (waitingQueue.find(u => u.id === id) ? 'Navbatda' : 'Online')
-    }));
+    const userList = Array.from(users.entries()).map(([id, data]) => {
+        const isSuper = superAdmins.has(id);
+        const isPermanent = data.uid && permanentAdmins.has(data.uid);
+        const isCurrent = currentAdmins.has(id);
+
+        return {
+            id,
+            nickname: data.nickname,
+            ip: data.ip,
+            uid: data.uid,
+            isSuperAdmin: isSuper,
+            isKichikAdmin: (isPermanent || isCurrent) && !isSuper,
+            status: activeChats.has(id) ? 'Chatda' : (waitingQueue.find(u => u.id === id) ? 'Navbatda' : 'Online'),
+            chatPartnerId: activeChats.get(id)?.partnerId
+        };
+    });
+
     io.to('admin-room').emit('admin-update', {
         users: userList,
-        stats: { total: io.engine.clientsCount, inChat: activeChats.size / 2, waiting: waitingQueue.length }
+        stats: {
+            total: io.engine.clientsCount,
+            inChat: activeChats.size / 2,
+            waiting: waitingQueue.length,
+            groups: groupRooms.size
+        }
     });
 }
 
@@ -51,11 +67,10 @@ io.on('connection', (socket) => {
         const uid = data?.uid;
         if (uid) {
             users.set(socket.id, { ...users.get(socket.id), uid });
-            // Auto-login if permanent admin
             if (permanentAdmins.has(uid)) {
                 currentAdmins.add(socket.id);
                 socket.join('admin-room');
-                socket.emit('admin-auth-success');
+                socket.emit('admin-auth-success', { level: 'kichik' });
             }
             broadcastAdminUpdate();
         }
@@ -73,21 +88,21 @@ io.on('connection', (socket) => {
     });
 
     socket.on('grant-admin', (targetId) => {
-        if (currentAdmins.has(socket.id)) {
+        if (superAdmins.has(socket.id)) {
             const targetUser = users.get(targetId);
             if (targetUser && targetUser.uid) {
                 permanentAdmins.add(targetUser.uid);
                 currentAdmins.add(targetId);
                 const targetSocket = io.sockets.sockets.get(targetId);
                 if (targetSocket) targetSocket.join('admin-room');
-                io.to(targetId).emit('admin-auth-success');
+                io.to(targetId).emit('admin-auth-success', { level: 'kichik' });
                 broadcastAdminUpdate();
             }
         }
     });
 
     socket.on('revoke-admin', (targetId) => {
-        if (currentAdmins.has(socket.id)) {
+        if (superAdmins.has(socket.id)) {
             const targetUser = users.get(targetId);
             if (targetUser && targetUser.uid) {
                 permanentAdmins.delete(targetUser.uid);
@@ -100,53 +115,99 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('next-user', () => {
-        cleanupUser(socket.id, 'skipped');
-        const userData = users.get(socket.id);
-        waitingQueue.push({ id: socket.id, nickname: userData?.nickname || 'Mehmon' });
-        matchUsers();
-        broadcastAdminUpdate();
+    socket.on('spy-chat', (targetId) => {
+        if (superAdmins.has(socket.id)) {
+            const chat = activeChats.get(targetId);
+            if (chat) {
+                socket.emit('spy-link-ready', {
+                    partner1: users.get(targetId)?.nickname,
+                    partner2: users.get(chat.partnerId)?.nickname,
+                    pairId: chat.pairId
+                });
+                socket.join(`chat-${chat.pairId}`);
+            }
+        }
+    });
+
+    socket.on('create-group', (roomName) => {
+        if (currentAdmins.has(socket.id) || superAdmins.has(socket.id)) {
+            const roomId = 'group_' + uuidv4();
+            groupRooms.set(roomId, { name: roomName, creatorId: socket.id, members: new Set([socket.id]) });
+            socket.join(roomId);
+            socket.emit('group-created', { roomId, name: roomName });
+            broadcastAdminUpdate();
+        }
+    });
+
+    socket.on('invite-user', ({ roomId, targetId }) => {
+        const room = groupRooms.get(roomId);
+        if (room && (room.creatorId === socket.id || superAdmins.has(socket.id))) {
+            const inviterNickname = users.get(socket.id)?.nickname;
+            io.to(targetId).emit('group-invitation', { roomId, roomName: room.name, inviter: inviterNickname });
+        }
+    });
+
+    socket.on('join-group', (roomId) => {
+        const room = groupRooms.get(roomId);
+        if (room) {
+            room.members.add(socket.id);
+            socket.join(roomId);
+            io.to(roomId).emit('group-message', {
+                sender: 'system',
+                text: `${users.get(socket.id)?.nickname} guruhga qo'shildi.`,
+                timestamp: Date.now()
+            });
+            socket.emit('group-joined', { roomId, name: room.name });
+        }
     });
 
     socket.on('send-message', (payload) => {
         const chat = activeChats.get(socket.id);
         const userData = users.get(socket.id);
-        if (chat && chat.partnerId) {
-            const partnerChat = activeChats.get(chat.partnerId);
-            if (partnerChat && partnerChat.pairId === chat.pairId) {
-                const isMsgAdmin = currentAdmins.has(socket.id) || (userData?.uid && permanentAdmins.has(userData.uid));
-                io.to(chat.partnerId).emit('receive-message', {
-                    ...payload,
-                    senderNickname: userData?.nickname,
-                    isAdmin: isMsgAdmin,
-                    timestamp: Date.now()
-                });
 
-                // Admin log - ONLY TO SUPER ADMINS
-                io.to('super-admin-room').emit('admin-new-message', {
-                    from: userData?.nickname || 'Anon',
-                    to: users.get(chat.partnerId)?.nickname || 'Anon',
-                    text: payload.text,
-                    hasFile: !!payload.file,
-                    timestamp: Date.now()
-                });
-            }
+        if (payload.roomId) { // Group message
+            io.to(payload.roomId).emit('group-message', {
+                ...payload,
+                senderNickname: userData?.nickname,
+                isAdmin: currentAdmins.has(socket.id) || superAdmins.has(socket.id),
+                timestamp: Date.now()
+            });
+            return;
         }
-    });
 
-    socket.on('typing', (isTyping) => {
-        const chat = activeChats.get(socket.id);
         if (chat && chat.partnerId) {
-            io.to(chat.partnerId).emit('partner-typing', isTyping);
+            const isMsgSuper = superAdmins.has(socket.id);
+            const isMsgKichik = (currentAdmins.has(socket.id) || (userData?.uid && permanentAdmins.has(userData.uid))) && !isMsgSuper;
+
+            const messageData = {
+                ...payload,
+                senderNickname: userData?.nickname,
+                isAdmin: isMsgSuper || isMsgKichik,
+                isSuperAdmin: isMsgSuper,
+                timestamp: Date.now()
+            };
+
+            io.to(`chat-${chat.pairId}`).emit('receive-message', messageData);
+            // Backup emit for cases where room join isn't automatic
+            io.to(chat.partnerId).emit('receive-message', messageData);
+
+            io.to('super-admin-room').emit('admin-new-message', {
+                from: userData?.nickname || 'Anon',
+                to: users.get(chat.partnerId)?.nickname || 'Anon',
+                text: payload.text,
+                hasFile: !!payload.file,
+                timestamp: Date.now()
+            });
         }
     });
 
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
             socket.join('admin-room');
-            socket.join('super-admin-room'); // ONLY PASS LOGIN JOINS HERE
+            socket.join('super-admin-room');
+            superAdmins.add(socket.id);
             currentAdmins.add(socket.id);
-            socket.emit('admin-auth-success');
+            socket.emit('admin-auth-success', { level: 'katta' });
             broadcastAdminUpdate();
         }
     });
@@ -155,6 +216,24 @@ io.on('connection', (socket) => {
         cleanupUser(socket.id);
         users.delete(socket.id);
         currentAdmins.delete(socket.id);
+        superAdmins.delete(socket.id);
+
+        // Cleanup groups
+        for (const [roomId, room] of groupRooms.entries()) {
+            if (room.members.has(socket.id)) {
+                room.members.delete(socket.id);
+                if (room.members.size === 0) {
+                    groupRooms.delete(roomId);
+                } else {
+                    io.to(roomId).emit('group-message', {
+                        sender: 'system',
+                        text: `${users.get(socket.id)?.nickname} guruhni tark etdi.`,
+                        timestamp: Date.now()
+                    });
+                }
+            }
+        }
+
         io.emit('online-count', io.engine.clientsCount);
         broadcastAdminUpdate();
     });
@@ -165,6 +244,7 @@ function cleanupUser(socketId, reason = 'left') {
     if (chat) {
         const partnerId = chat.partnerId;
         io.to(partnerId).emit('partner-disconnected', { reason });
+        io.to(`chat-${chat.pairId}`).emit('partner-disconnected', { reason });
         activeChats.delete(partnerId);
         activeChats.delete(socketId);
     }
@@ -179,6 +259,11 @@ function matchUsers() {
 
         activeChats.set(user1.id, { partnerId: user2.id, pairId });
         activeChats.set(user2.id, { partnerId: user1.id, pairId });
+
+        const s1 = io.sockets.sockets.get(user1.id);
+        const s2 = io.sockets.sockets.get(user2.id);
+        if (s1) s1.join(`chat-${pairId}`);
+        if (s2) s2.join(`chat-${pairId}`);
 
         io.to(user1.id).emit('match-found', { partnerNickname: user2.nickname });
         io.to(user2.id).emit('match-found', { partnerNickname: user1.nickname });
