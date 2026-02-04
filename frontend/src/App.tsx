@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Camera, CameraOff, Mic, MicOff, SkipForward, AlertTriangle, MessageSquare, Send, Globe, User } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = 'https://chatuz-backend.onrender.com';
 
 const App = () => {
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
