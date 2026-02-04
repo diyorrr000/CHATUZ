@@ -61,7 +61,7 @@ io.on('connection', (socket) => {
 
     socket.on('next-user', () => {
         const userData = users.get(socket.id);
-        leaveChat(socket);
+        leaveChat(socket, 'skipped');
         if (userData) {
             waitingQueue.push({ id: socket.id, info: userData });
             matchUsers();
@@ -138,11 +138,11 @@ function matchUsers() {
     });
 }
 
-function leaveChat(socket) {
+function leaveChat(socket, reason = 'left') {
     const chat = activeChats.get(socket.id);
     if (chat) {
         const partnerId = chat.partnerId;
-        io.to(partnerId).emit('partner-disconnected');
+        io.to(partnerId).emit('partner-disconnected', { reason });
         activeChats.delete(partnerId);
         activeChats.delete(socket.id);
 

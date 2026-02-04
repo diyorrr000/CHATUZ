@@ -51,13 +51,18 @@ const App = () => {
       }]);
     });
 
-    socket.on('partner-disconnected', () => {
+    socket.on('partner-disconnected', (data?: { reason: string }) => {
       setPartnerConnected(false);
       setPartnerData(null);
       setInQueue(true);
       socketRef.current?.emit('join-queue', userData);
+
+      const leaveMessage = data?.reason === 'skipped'
+        ? "Suhbatdosh 'Keyingisi' tugmasini bosdi. Yangi suhbatdosh qidirilmoqda..."
+        : "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...";
+
       setMessages(prev => [...prev, {
-        text: "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...",
+        text: leaveMessage,
         sender: 'partner',
         timestamp: Date.now()
       }]);
