@@ -20,13 +20,10 @@ app.get('/', (req, res) => {
     res.send('CHATUZ Server is Running');
 });
 
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
+// User data maps
 let waitingQueue = [];
-const activeChats = new Map();
-const users = new Map();
+const activeChats = new Map(); // socket.id -> { partnerId, partnerNickname }
+const users = new Map(); // socket.id -> { ip, joinedAt, nickname }
 const admins = new Set();
 
 function getClientIP(socket) {
@@ -53,18 +50,60 @@ function broadcastAdminUpdate() {
 }
 
 function broadcastOnlineCount() {
-    const totalOnline = io.engine.clientsCount;
-    io.emit('online-count', totalOnline);
+    io.emit('online-count', io.engine.clientsCount);
 }
 
 io.on('connection', (socket) => {
     const ip = getClientIP(socket);
-    console.log('User connected:', socket.id, 'IP:', ip);
+    users.set(socket.id, { ip, joinedAt: Date.now(), nickname: 'Mehmon' });
 
-    // Initial user data (waiting for nickname)
-    users.set(socket.id, { ip, joinedAt: Date.now(), nickname: 'Qidirilmoqda...' });
     broadcastOnlineCount();
     broadcastAdminUpdate();
+
+    socket.on('join-queue', (data) => {
+        const nickname = data?.nickname || 'Mehmon';
+        users.set(socket.id, { ...users.get(socket.id), nickname });
+
+        // Clean up from any existing chats or queues
+        removeFromQueue(socket.id);
+
+        waitingQueue.push({ id: socket.id, nickname });
+        matchUsers();
+        broadcastAdminUpdate();
+    });
+
+    socket.on('next-user', () => {
+        const userData = users.get(socket.id);
+        leaveChat(socket, 'skipped');
+
+        // Add back to queue if not already there
+        if (!waitingQueue.find(u => u.id === socket.id)) {
+            waitingQueue.push({ id: socket.id, nickname: userData?.nickname || 'Mehmon' });
+            matchUsers();
+        }
+        broadcastAdminUpdate();
+    });
+
+    socket.on('send-message', (message) => {
+        const chat = activeChats.get(socket.id);
+        const userData = users.get(socket.id);
+        if (chat) {
+            io.to(chat.partnerId).emit('receive-message', {
+                ...message,
+                senderNickname: userData?.nickname,
+                timestamp: Date.now()
+            });
+
+            // Log for admin
+            io.to('admin-room').emit('admin-new-message', {
+                from: userData?.nickname || socket.id,
+                to: users.get(chat.partnerId)?.nickname || 'Partner',
+                text: message.text,
+                hasFile: !!message.file,
+                timestamp: Date.now()
+            });
+        }
+    });
 
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
@@ -75,70 +114,19 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('join-queue', (data) => {
-        const nickname = data?.nickname || 'Anonim';
-        users.set(socket.id, { ...users.get(socket.id), nickname });
-
-        if (activeChats.has(socket.id)) {
-            leaveChat(socket);
-        }
-        waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-        waitingQueue.push({ id: socket.id, nickname });
-        matchUsers();
-        broadcastAdminUpdate();
-    });
-
-    socket.on('next-user', () => {
-        const userData = users.get(socket.id);
-        leaveChat(socket, 'skipped');
-        if (!waitingQueue.find(u => u.id === socket.id)) {
-            waitingQueue.push({ id: socket.id, nickname: userData?.nickname });
-            matchUsers();
-            broadcastAdminUpdate();
-        }
-    });
-
-    socket.on('send-message', (message) => {
-        const chat = activeChats.get(socket.id);
-        const userData = users.get(socket.id);
-        if (chat) {
-            io.to(chat.partnerId).emit('receive-message', { ...message, senderNickname: userData?.nickname });
-
-            // Broadcast to admins for monitoring
-            io.to('admin-room').emit('admin-new-message', {
-                from: userData?.nickname || socket.id,
-                to: users.get(chat.partnerId)?.nickname || chat.partnerId,
-                text: message.text,
-                hasFile: !!message.file,
-                timestamp: Date.now()
-            });
-        }
-    });
-
-    socket.on('report-user', () => {
-        const chat = activeChats.get(socket.id);
-        const userData = users.get(socket.id);
-        if (chat) {
-            const partnerId = chat.partnerId;
-            leaveChat(socket);
-            if (!waitingQueue.find(u => u.id === socket.id)) {
-                waitingQueue.push({ id: socket.id, nickname: userData?.nickname });
-                matchUsers();
-            }
-            io.to(partnerId).emit('partner-disconnected', { reason: 'left' });
-        }
-        broadcastAdminUpdate();
-    });
-
     socket.on('disconnect', () => {
         leaveChat(socket);
-        waitingQueue = waitingQueue.filter(user => user.id !== socket.id);
+        removeFromQueue(socket.id);
         users.delete(socket.id);
         admins.delete(socket.id);
         broadcastOnlineCount();
         broadcastAdminUpdate();
     });
 });
+
+function removeFromQueue(socketId) {
+    waitingQueue = waitingQueue.filter(u => u.id !== socketId);
+}
 
 function matchUsers() {
     while (waitingQueue.length >= 2) {
@@ -148,8 +136,8 @@ function matchUsers() {
         activeChats.set(user1.id, { partnerId: user2.id, partnerNickname: user2.nickname });
         activeChats.set(user2.id, { partnerId: user1.id, partnerNickname: user1.nickname });
 
-        io.to(user1.id).emit('match-found', { partnerId: user2.id, partnerNickname: user2.nickname });
-        io.to(user2.id).emit('match-found', { partnerId: user1.id, partnerNickname: user1.nickname });
+        io.to(user1.id).emit('match-found', { partnerNickname: user2.nickname });
+        io.to(user2.id).emit('match-found', { partnerNickname: user1.nickname });
     }
 }
 
@@ -157,10 +145,15 @@ function leaveChat(socket, reason = 'left') {
     const chat = activeChats.get(socket.id);
     if (chat) {
         const partnerId = chat.partnerId;
+
+        // Tell the partner they are alone
         io.to(partnerId).emit('partner-disconnected', { reason });
+
+        // Remove both from active chats
         activeChats.delete(partnerId);
         activeChats.delete(socket.id);
 
+        // Put the partner back in queue if they are still connected
         const partnerData = users.get(partnerId);
         if (partnerData && !waitingQueue.find(u => u.id === partnerId)) {
             waitingQueue.push({ id: partnerId, nickname: partnerData.nickname });
