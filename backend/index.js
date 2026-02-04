@@ -16,6 +16,15 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
+// Health check route for Render
+app.get('/', (req, res) => {
+    res.send('CHATUZ Server is Running');
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
 // Queue of objects: { id, info: { country, age } }
 let waitingQueue = [];
 // Map: socketId -> { partnerId, partnerInfo }
