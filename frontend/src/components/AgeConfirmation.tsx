@@ -8,6 +8,7 @@ interface UserData {
 
 interface AgeConfirmationProps {
     onConfirm: (data: UserData) => void;
+    realOnlineCount: number;
 }
 
 const countryGroups = [
@@ -18,7 +19,7 @@ const countryGroups = [
 
 const ageRanges = ["18-24", "25-34", "35-44", "45+"];
 
-const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm }) => {
+const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnlineCount }) => {
     const [age, setAge] = useState(ageRanges[0]);
     const [country, setCountry] = useState("Dunyo bo'ylab (Global)");
 
@@ -38,7 +39,7 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm }) => {
 
                 <div className="online-status">
                     <div className="online-dot"></div>
-                    <span>3,284 foydalanuvchi onlayn</span>
+                    <span>{realOnlineCount} foydalanuvchi onlayn</span>
                 </div>
 
                 <p style={{ fontSize: '18px', fontWeight: '500', marginBottom: '30px', opacity: 0.8 }}>Yangi do'stlar orttiring</p>

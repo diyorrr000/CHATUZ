@@ -23,8 +23,16 @@ const activeChats = new Map();
 // Simple user data cache: socketId -> userData
 const users = new Map();
 
+// Helper to broadcast real online count to all connected clients
+function broadcastOnlineCount() {
+    const totalOnline = io.engine.clientsCount;
+    io.emit('online-count', totalOnline);
+    console.log(`Real Online Count Broadcasted: ${totalOnline}`);
+}
+
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
+    broadcastOnlineCount();
 
     socket.on('join-queue', (userData) => {
         users.set(socket.id, userData);
@@ -33,18 +41,22 @@ io.on('connection', (socket) => {
             leaveChat(socket);
         }
 
-        if (!waitingQueue.find(user => user.id === socket.id)) {
-            waitingQueue.push({ id: socket.id, info: userData });
-            console.log(`User joined queue: ${socket.id} (${userData.country})`);
-            matchUsers();
-        }
+        // Remove if already in queue to avoid duplicates
+        waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+
+        waitingQueue.push({ id: socket.id, info: userData });
+        console.log(`User ${socket.id} joined pool: ${userData.country}`);
+
+        matchUsers();
     });
 
     socket.on('next-user', () => {
         const userData = users.get(socket.id);
         leaveChat(socket);
-        waitingQueue.push({ id: socket.id, info: userData });
-        matchUsers();
+        if (userData) {
+            waitingQueue.push({ id: socket.id, info: userData });
+            matchUsers();
+        }
     });
 
     socket.on('signal', (data) => {
@@ -83,23 +95,27 @@ io.on('connection', (socket) => {
         leaveChat(socket);
         waitingQueue = waitingQueue.filter(user => user.id !== socket.id);
         users.delete(socket.id);
+        broadcastOnlineCount();
     });
 });
 
 function matchUsers() {
-    // We need to match users who have the SAME selected regional preference
-    // or handle "Global" specifically.
+    console.log(`Checking matches... Queue size: ${waitingQueue.length}`);
 
-    // Get all unique countries in the queue
-    const pendingCountries = [...new Set(waitingQueue.map(u => u.info.country))];
+    // We group users by their selected country pool
+    const pools = {};
+    waitingQueue.forEach(user => {
+        const poolName = user.info.country;
+        if (!pools[poolName]) pools[poolName] = [];
+        pools[poolName].push(user);
+    });
 
-    pendingCountries.forEach(country => {
-        // Filter users waiting for this specific country
-        let sameCountryUsers = waitingQueue.filter(u => u.info.country === country);
-
-        while (sameCountryUsers.length >= 2) {
-            const user1 = sameCountryUsers.shift();
-            const user2 = sameCountryUsers.shift();
+    // Match within each pool
+    Object.keys(pools).forEach(poolName => {
+        const pool = pools[poolName];
+        while (pool.length >= 2) {
+            const user1 = pool.shift();
+            const user2 = pool.shift();
 
             // Remove from global waiting queue
             waitingQueue = waitingQueue.filter(u => u.id !== user1.id && u.id !== user2.id);
@@ -118,7 +134,7 @@ function matchUsers() {
                 partnerInfo: user1.info
             });
 
-            console.log(`Matched ${user1.id} with ${user2.id} in pool: ${country}`);
+            console.log(`MATCH SUCCESS: ${user1.id} <-> ${user2.id} in ${poolName}`);
         }
     });
 }
@@ -131,15 +147,13 @@ function leaveChat(socket) {
         activeChats.delete(partnerId);
         activeChats.delete(socket.id);
 
-        if (!waitingQueue.find(u => u.id === partnerId)) {
-            const partnerData = users.get(partnerId);
-            if (partnerData) {
-                waitingQueue.push({ id: partnerId, info: partnerData });
-                matchUsers();
-            }
+        // Automatically put the abandoned partner back in queue
+        const partnerData = users.get(partnerId);
+        if (partnerData && !waitingQueue.find(u => u.id === partnerId)) {
+            waitingQueue.push({ id: partnerId, info: partnerData });
+            matchUsers();
         }
     }
-    waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
 }
 
 httpServer.listen(PORT, () => {

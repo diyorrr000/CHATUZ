@@ -6,7 +6,6 @@ import AgeConfirmation from './components/AgeConfirmation';
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
 
 const App = () => {
-  // ... (rest of the component logic remains same until return)
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
@@ -16,6 +15,7 @@ const App = () => {
   const [micOn, setMicOn] = useState(true);
   const [messages, setMessages] = useState<{ text: string, sender: 'me' | 'partner' }[]>([]);
   const [inputValue, setInputValue] = useState('');
+  const [onlineCount, setOnlineCount] = useState(0);
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -26,25 +26,22 @@ const App = () => {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
   };
 
+  // Pre-initialize socket even before AgeConfirmation to get online count
   useEffect(() => {
-    if (userData) {
-      initSocket();
-      initMedia();
-    }
-    return () => {
-      socketRef.current?.disconnect();
-      localStream?.getTracks().forEach(track => track.stop());
-    };
-  }, [userData]);
-
-  const initSocket = () => {
     socketRef.current = io(SOCKET_URL);
+
+    socketRef.current.on('online-count', (count: number) => {
+      setOnlineCount(count);
+    });
+
     socketRef.current.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
+      console.log('Match found! Initiator:', initiator);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
       createPeerConnection(partnerId);
+
       if (initiator) {
         const offer = await peerConnectionRef.current?.createOffer();
         await peerConnectionRef.current?.setLocalDescription(offer);
@@ -70,13 +67,27 @@ const App = () => {
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
-      if (inQueue) socketRef.current?.emit('join-queue', userData);
+      // Wait a bit and rejoin queue if we were in it
+      setInQueue(true);
     });
 
     socketRef.current.on('receive-message', (msg) => {
       setMessages(prev => [...prev, msg]);
     });
-  };
+
+    return () => {
+      socketRef.current?.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (userData) {
+      initMedia();
+    }
+    return () => {
+      localStream?.getTracks().forEach(track => track.stop());
+    };
+  }, [userData]);
 
   const initMedia = async () => {
     try {
@@ -84,19 +95,29 @@ const App = () => {
       setLocalStream(stream);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     } catch (err) {
-      alert('Kamera ruxsati zarur!');
+      console.error('Media error:', err);
     }
   };
 
   const createPeerConnection = (partnerId: string) => {
     resetPeerConnection();
     peerConnectionRef.current = new RTCPeerConnection(configuration);
-    localStream?.getTracks().forEach(track => peerConnectionRef.current?.addTrack(track, localStream));
+
+    // Safety: check localStream tracks
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        peerConnectionRef.current?.addTrack(track, localStream);
+      });
+    }
+
     peerConnectionRef.current.ontrack = (event) => {
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
+
     peerConnectionRef.current.onicecandidate = (event) => {
-      if (event.candidate) socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
+      if (event.candidate) {
+        socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
+      }
     };
   };
 
@@ -104,6 +125,9 @@ const App = () => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
     }
   };
 
@@ -115,6 +139,7 @@ const App = () => {
       setInQueue(false);
       resetPeerConnection();
       setPartnerConnected(false);
+      setPartnerData(null);
       socketRef.current?.emit('next-user');
     }
   };
@@ -154,7 +179,7 @@ const App = () => {
   };
 
   if (!userData) {
-    return <AgeConfirmation onConfirm={(data) => setUserData(data)} />;
+    return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
   }
 
   return (
@@ -200,7 +225,7 @@ const App = () => {
               ) : (
                 <div className="text-center opacity-30">
                   <Play size={80} />
-                  <p className="mt-4 font-bold">BOSHLASH TUGMASINI BOSING</p>
+                  <p className="mt-4 font-bold uppercase tracking-widest text-xs">Boshlash tugmasini bosing</p>
                 </div>
               )}
             </div>
@@ -220,7 +245,6 @@ const App = () => {
       {/* Bottom Panel */}
       <div className="bottom-panel relative">
         <div className="main-controls">
-          {/* Start/Stop Block */}
           <div
             onClick={toggleChat}
             className={`control-block ${inQueue || partnerConnected ? 'active' : ''}`}
@@ -229,7 +253,6 @@ const App = () => {
             <span>{inQueue || partnerConnected ? "Stop" : "Start"}</span>
           </div>
 
-          {/* Next User Block */}
           <div
             onClick={nextUser}
             className={`control-block ${!inQueue && !partnerConnected ? 'disabled' : ''}`}
@@ -238,16 +261,14 @@ const App = () => {
             <span>Keyingisi</span>
           </div>
 
-          {/* Country Block */}
           <div className="control-block active">
             <Globe size={32} />
             <span>{userData.country.split(' (')[0]}</span>
           </div>
 
-          {/* Sex Block - Mocked as Active */}
           <div className="control-block active hidden sm:flex">
             <User size={32} />
-            <span>Barcha</span>
+            <span>{onlineCount} Real</span>
           </div>
         </div>
 
@@ -277,7 +298,6 @@ const App = () => {
           </form>
         </div>
 
-        {/* Developer Credit */}
         <div className="absolute right-4 bottom-2 text-[10px] text-white/20 font-bold tracking-widest hidden lg:block">
           YARATUVCHI: SHONAZAROV DIYORBEK
         </div>
