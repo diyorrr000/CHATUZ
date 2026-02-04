@@ -44,6 +44,10 @@ const App = () => {
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isConnected, setIsConnected] = useState(false);
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const partnerTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -135,7 +139,18 @@ const App = () => {
     });
 
     socket.on('partner-disconnected', handlePartnerDisconnect);
-    socket.on('receive-message', (msg: any) => setMessages(prev => [...prev, { ...msg, sender: 'partner' }]));
+    socket.on('receive-message', (msg: any) => {
+      setMessages(prev => [...prev, { ...msg, sender: 'partner' }]);
+      setIsPartnerTyping(false);
+    });
+
+    socket.on('partner-typing', (isTyping: boolean) => {
+      setIsPartnerTyping(isTyping);
+      if (partnerTypingTimeoutRef.current) clearTimeout(partnerTypingTimeoutRef.current);
+      if (isTyping) {
+        partnerTypingTimeoutRef.current = setTimeout(() => setIsPartnerTyping(false), 5000);
+      }
+    });
 
     socket.on('admin-auth-success', () => {
       setIsAdmin(true);
@@ -180,6 +195,7 @@ const App = () => {
     if (!inputValue.trim() || !partnerConnected || !isConnected) return;
     const msg = { text: inputValue };
     socketRef.current?.emit('send-message', msg);
+    socketRef.current?.emit('typing', false);
     setMessages(prev => [...prev, {
       text: inputValue,
       sender: 'me',
@@ -188,6 +204,17 @@ const App = () => {
       timestamp: Date.now()
     }]);
     setInputValue('');
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+    if (!partnerConnected) return;
+
+    socketRef.current?.emit('typing', true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketRef.current?.emit('typing', false);
+    }, 2000);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -312,6 +339,16 @@ const App = () => {
               </div>
             </div>
           ))}
+          {isPartnerTyping && (
+            <div className="message-wrapper partner">
+              <div className="message-content typing-indicator">
+                <span className="nickname-label" style={{ fontSize: '9px', opacity: 0.6 }}>{partnerNickname} yozmoqda...</span>
+                <div className="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          )}
           <div ref={chatEndRef} />
         </div>
       </main>
@@ -325,7 +362,14 @@ const App = () => {
           <div className="input-wrapper">
             <button className="file-btn" onClick={() => fileInputRef.current?.click()}><Paperclip size={20} /></button>
             <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
-            <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder="Xabar..." disabled={!partnerConnected} />
+            <input
+              type="text"
+              value={inputValue}
+              onChange={handleInputChange}
+              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              placeholder="Xabar..."
+              disabled={!partnerConnected}
+            />
             <button className="send-btn" onClick={() => sendMessage()} disabled={!partnerConnected || !inputValue.trim()}><Send size={20} /></button>
           </div>
         </div>

@@ -87,6 +87,13 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('typing', (isTyping) => {
+        const chat = activeChats.get(socket.id);
+        if (chat && chat.partnerId) {
+            io.to(chat.partnerId).emit('partner-typing', isTyping);
+        }
+    });
+
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
             socket.join('admin-room');
