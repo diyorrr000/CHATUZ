@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock, RefreshCw, Eye, Users as UsersIcon, LogOut } from 'lucide-react';
+import { Play, Square, User, Send, Moon, Sun, Paperclip, Download, ShieldCheck, Activity, Users, Clock, RefreshCw, Eye, Users as UsersIcon, LogOut } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -369,8 +369,6 @@ const App = () => {
                   {m.isSuperAdmin && <ShieldCheck size={10} className="inline mr-1 text-yellow-500" />}
                   {m.isAdmin && !m.isSuperAdmin && <ShieldCheck size={10} className="inline mr-1 text-blue-500" />}
                   {m.sender === 'me' ? 'Siz' : m.senderNickname}
-                  {m.isSuperAdmin && <span className="admin-badge katta">KAT_ADMIN</span>}
-                  {m.isAdmin && !m.isSuperAdmin && <span className="admin-badge">KCH_ADMIN</span>}
                 </span>
                 {m.text && <p className="text">{m.text}</p>}
                 {m.file && (

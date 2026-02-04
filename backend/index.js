@@ -166,7 +166,7 @@ io.on('connection', (socket) => {
         const userData = users.get(socket.id);
 
         if (payload.roomId) { // Group message
-            io.to(payload.roomId).emit('group-message', {
+            socket.to(payload.roomId).emit('group-message', {
                 ...payload,
                 senderNickname: userData?.nickname,
                 isAdmin: currentAdmins.has(socket.id) || superAdmins.has(socket.id),
@@ -187,9 +187,7 @@ io.on('connection', (socket) => {
                 timestamp: Date.now()
             };
 
-            io.to(`chat-${chat.pairId}`).emit('receive-message', messageData);
-            // Backup emit for cases where room join isn't automatic
-            io.to(chat.partnerId).emit('receive-message', messageData);
+            socket.to(`chat-${chat.pairId}`).emit('receive-message', messageData);
 
             io.to('super-admin-room').emit('admin-new-message', {
                 from: userData?.nickname || 'Anon',
