@@ -46,8 +46,8 @@ const App = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
 
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const partnerTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const partnerTypingTimeoutRef = useRef<any>(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
