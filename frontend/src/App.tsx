@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, Volume2, VolumeX } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, RefreshCw } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -18,7 +18,6 @@ const App = () => {
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [connStatus, setConnStatus] = useState<string>('');
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -34,6 +33,7 @@ const App = () => {
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' }
     ],
     iceCandidatePoolSize: 10,
   };
@@ -45,7 +45,8 @@ const App = () => {
   useEffect(() => {
     const socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10
+      reconnectionAttempts: 10,
+      autoConnect: true
     });
     socketRef.current = socket;
 
@@ -54,24 +55,27 @@ const App = () => {
     });
 
     socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
+      console.log('Match found. Initiator:', initiator);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
-      setConnStatus('Ulanish o\'rnatilmoqda...');
+      setConnStatus('Ulanishga urinish...');
 
       const pc = createPeerConnection(partnerId);
 
       if (initiator) {
-        setTimeout(async () => {
-          try {
-            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-            await pc.setLocalDescription(offer);
-            socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
-          } catch (err) {
-            console.error('Offer error:', err);
-          }
-        }, 1000);
+        // Initiator creates the offer
+        try {
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+          });
+          await pc.setLocalDescription(offer);
+          socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
+        } catch (err) {
+          console.error('Failed to create offer:', err);
+        }
       }
 
       while (pendingSignals.current.length > 0) {
@@ -136,7 +140,6 @@ const App = () => {
     setPartnerConnected(false);
     setPartnerData(null);
     setConnStatus('');
-    setRemoteStream(null);
     setInQueue(true);
     socketRef.current?.emit('join-queue', userData);
   };
@@ -157,17 +160,19 @@ const App = () => {
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       return stream;
     } catch (err) {
-      console.error('Media Access Denied:', err);
-      alert('Kamera va mikrofonga ruxsat bering! Busiz ulanish imkonsiz.');
+      console.error('Media error:', err);
+      alert('Kamera va mikrofonga ruxsat bering!');
     }
   };
 
   const createPeerConnection = (partnerId: string) => {
-    resetPeerConnection();
-    pendingCandidates.current = [];
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
 
     const pc = new RTCPeerConnection(configuration);
     peerConnectionRef.current = pc;
+    pendingCandidates.current = [];
 
     if (localStream) {
       localStream.getTracks().forEach(track => {
@@ -175,22 +180,25 @@ const App = () => {
       });
     }
 
+    // Modern ontrack listener
     pc.ontrack = (event) => {
-      console.log('Track received from partner');
-      setConnStatus('');
+      console.log('Received remote track:', event.track.kind);
       if (remoteVideoRef.current) {
         if (event.streams && event.streams[0]) {
           remoteVideoRef.current.srcObject = event.streams[0];
-          setRemoteStream(event.streams[0]);
         } else {
-          const incomingStream = remoteStream || new MediaStream();
-          incomingStream.addTrack(event.track);
-          remoteVideoRef.current.srcObject = incomingStream;
-          setRemoteStream(incomingStream);
+          // Fallback for some browsers
+          if (!remoteVideoRef.current.srcObject) {
+            remoteVideoRef.current.srcObject = new MediaStream([event.track]);
+          } else {
+            (remoteVideoRef.current.srcObject as MediaStream).addTrack(event.track);
+          }
         }
+        // Auto-play attempt
+        setConnStatus('');
         remoteVideoRef.current.play().catch(e => {
-          console.warn('Auto-play blocked, waiting for interaction', e);
-          setConnStatus('Videoni ko\'rish uchun shu erni bosing');
+          console.warn('Autoplay prevented:', e);
+          setConnStatus('Videoni yoqish uchun shu erni bosing');
         });
       }
     };
@@ -202,10 +210,15 @@ const App = () => {
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE:', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'connected') setConnStatus('');
-      if (pc.iceConnectionState === 'disconnected') setConnStatus('Aloqa uzildi...');
-      if (pc.iceConnectionState === 'failed') setConnStatus('Ulanish xatosi (Firewall)');
+      const state = pc.iceConnectionState;
+      console.log('ICE Connection State:', state);
+      if (state === 'connected' || state === 'completed') {
+        setConnStatus('');
+      } else if (state === 'failed') {
+        setConnStatus('Ulanishda xato (Proksi/VPN o\'chiring)');
+      } else if (state === 'checking') {
+        setConnStatus('Ulanish tekshirilmoqda...');
+      }
     };
 
     return pc;
@@ -233,7 +246,6 @@ const App = () => {
       setPartnerConnected(false);
       setPartnerData(null);
       setConnStatus('');
-      setRemoteStream(null);
       socketRef.current?.emit('next-user');
     }
   };
@@ -244,7 +256,6 @@ const App = () => {
     setPartnerData(null);
     setMessages([]);
     setConnStatus('');
-    setRemoteStream(null);
     setInQueue(true);
     socketRef.current?.emit('next-user');
   };
@@ -273,8 +284,8 @@ const App = () => {
     setInputValue('');
   };
 
-  const handleRemotePlay = () => {
-    if (remoteVideoRef.current) {
+  const forcePlayRemote = () => {
+    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
       remoteVideoRef.current.play().then(() => setConnStatus('')).catch(console.error);
     }
   };
@@ -290,33 +301,32 @@ const App = () => {
           <div className="badge">SIZ</div>
           <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
           {!camOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-950">
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
               <CameraOff size={64} className="text-white/20" />
             </div>
           )}
           <div className="absolute top-4 right-4 flex gap-2">
             <button onClick={toggleMic} className={`p-2 rounded-lg ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
+              {micOn ? <Mic size={20} /> : <MicOff size={20} />}
             </button>
             <button onClick={toggleCam} className={`p-2 rounded-lg ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {camOn ? <Camera size={18} /> : <CameraOff size={18} />}
+              {camOn ? <Camera size={20} /> : <CameraOff size={20} />}
             </button>
           </div>
         </div>
 
-        <div className="video-box" onClick={handleRemotePlay}>
+        <div className="video-box" onClick={forcePlayRemote}>
           <div className="badge">{partnerConnected ? "SUHBATDOSH" : "QIDIRILMOQDA..."}</div>
           {partnerConnected ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline />
               {connStatus && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 text-center p-4">
-                  {connStatus.includes('Ulanish') ? (
-                    <Loader2 className="animate-spin text-blue-500 mb-2" size={40} />
-                  ) : (
-                    <Volume2 className="text-blue-500 mb-2 animate-bounce" size={40} />
-                  )}
-                  <span className="text-white text-xs font-bold uppercase tracking-wider">{connStatus}</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm z-10 text-center p-6">
+                  <div className="bg-blue-600 p-4 rounded-full mb-4 animate-bounce">
+                    <RefreshCw className="text-white" size={32} />
+                  </div>
+                  <p className="text-white font-bold text-sm mb-2">{connStatus}</p>
+                  <p className="text-white/60 text-xs">Video chiqishi uchun bu erni bosing</p>
                 </div>
               )}
               <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
@@ -344,7 +354,7 @@ const App = () => {
               onClick={(e) => { e.stopPropagation(); socketRef.current?.emit('report-user'); nextUser(); }}
               className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500 z-20"
             >
-              <AlertCircle size={18} />
+              <AlertCircle size={20} />
             </button>
           )}
         </div>
@@ -357,17 +367,17 @@ const App = () => {
 
         <div className="controls-group">
           <div onClick={toggleChat} className={`control-item ${(inQueue || partnerConnected) ? 'active' : ''}`}>
-            {(inQueue || partnerConnected) ? <Square size={28} /> : <Play size={28} fill="currentColor" />}
+            {(inQueue || partnerConnected) ? <Square size={32} /> : <Play size={32} fill="currentColor" />}
             <span>{(inQueue || partnerConnected) ? "Stop" : "Start"}</span>
           </div>
 
           <div onClick={nextUser} className={`control-item ${(!inQueue && !partnerConnected) ? 'disabled' : ''}`}>
-            <SkipForward size={28} fill="currentColor" />
+            <SkipForward size={32} fill="currentColor" />
             <span>Keyingi</span>
           </div>
 
           <div className="control-item active hidden md:flex">
-            <Globe size={28} />
+            <Globe size={32} />
             <span>{userData.country.split(' (')[0]}</span>
           </div>
         </div>
@@ -397,7 +407,7 @@ const App = () => {
               placeholder="Xabar..."
             />
             <button type="submit" style={{ background: 'transparent', border: 'none', color: '#3b82f6', padding: '0 10px', cursor: 'pointer' }}>
-              <Send size={18} />
+              <Send size={20} />
             </button>
           </form>
         </div>
