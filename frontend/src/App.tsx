@@ -299,7 +299,7 @@ const App = () => {
                   </tbody>
                 </table>
               </div>
-              <div className="admin-global-chat scrollbar-hide">
+              <div className="admin-global-chat" style={{ overflowY: 'auto', maxHeight: '100%' }}>
                 <div className="admin-messages">
                   {globalMessages.map((gm, i) => (
                     <div key={i} className="admin-msg-row">

@@ -122,8 +122,8 @@ io.on('connection', (socket) => {
                     timestamp: Date.now()
                 });
 
-                // Admin log
-                io.to('admin-room').emit('admin-new-message', {
+                // Admin log - ONLY TO SUPER ADMINS
+                io.to('super-admin-room').emit('admin-new-message', {
                     from: userData?.nickname || 'Anon',
                     to: users.get(chat.partnerId)?.nickname || 'Anon',
                     text: payload.text,
@@ -144,6 +144,7 @@ io.on('connection', (socket) => {
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
             socket.join('admin-room');
+            socket.join('super-admin-room'); // ONLY PASS LOGIN JOINS HERE
             currentAdmins.add(socket.id);
             socket.emit('admin-auth-success');
             broadcastAdminUpdate();
