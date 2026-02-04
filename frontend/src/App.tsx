@@ -28,9 +28,7 @@ const App = () => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
     ]
   };
 
@@ -38,14 +36,24 @@ const App = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  // Handle Socket Connection
   useEffect(() => {
-    socketRef.current = io(SOCKET_URL);
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket'],
+      upgrade: false
+    });
+    socketRef.current = socket;
 
-    socketRef.current.on('online-count', (count: number) => {
+    socket.on('connect', () => {
+      console.log('Connected to server:', socket.id);
+    });
+
+    socket.on('online-count', (count: number) => {
       setOnlineCount(count);
     });
 
-    socketRef.current.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
+    socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
+      console.log('Match found with:', partnerId);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
@@ -59,19 +67,18 @@ const App = () => {
           await pc.setLocalDescription(offer);
           socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
         } catch (err) {
-          console.error('Failed to create offer:', err);
+          console.error('Offer error:', err);
         }
       }
     });
 
-    socketRef.current.on('signal', async (data) => {
+    socket.on('signal', async (data) => {
       const pc = peerConnectionRef.current;
       if (!pc) return;
 
       try {
         if (data.type === 'offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          // Process any candidates that arrived before the offer
           while (pendingCandidates.current.length > 0) {
             const candidate = pendingCandidates.current.shift();
             if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -81,7 +88,6 @@ const App = () => {
           socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
         } else if (data.type === 'answer') {
           await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          // Process any candidates that arrived before the answer
           while (pendingCandidates.current.length > 0) {
             const candidate = pendingCandidates.current.shift();
             if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -98,25 +104,32 @@ const App = () => {
       }
     });
 
-    socketRef.current.on('partner-disconnected', () => {
+    socket.on('partner-disconnected', () => {
+      console.log('Partner left');
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
+      // Auto-rejoin if we were previously in a state that should be searching
       setInQueue(true);
     });
 
-    socketRef.current.on('receive-message', (msg) => {
+    socket.on('receive-message', (msg) => {
       setMessages(prev => [...prev, msg]);
     });
 
     return () => {
-      socketRef.current?.disconnect();
+      socket.disconnect();
     };
   }, []);
 
+  // Automatic media and queue join after age confirmation
   useEffect(() => {
     if (userData) {
-      initMedia();
+      initMedia().then(() => {
+        // Immediately join queue after getting media
+        setInQueue(true);
+        socketRef.current?.emit('join-queue', userData);
+      });
     }
   }, [userData]);
 
@@ -125,9 +138,10 @@ const App = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setLocalStream(stream);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      return stream;
     } catch (err) {
-      console.error('Media error:', err);
-      alert('Kamera yoki mikrofonga ruxsat berilmagan. Iltimos, brauzer sozlamalarini tekshiring.');
+      console.error('Media Access Denied:', err);
+      alert('Iltimos, kamera va mikrofonga ruxsat bering!');
     }
   };
 
@@ -151,13 +165,6 @@ const App = () => {
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-      if (pc.connectionState === 'failed') {
-        console.warn('WebRTC failed. This is likely due to NAT firewall blocks on mobile data.');
       }
     };
 
@@ -189,7 +196,6 @@ const App = () => {
   };
 
   const nextUser = () => {
-    if (!inQueue && !partnerConnected) return;
     resetPeerConnection();
     setPartnerConnected(false);
     setPartnerData(null);
@@ -262,12 +268,12 @@ const App = () => {
               {inQueue ? (
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-blue-400 font-bold tracking-widest text-[10px]">QIDIRILMOQDA...</span>
+                  <span className="text-blue-400 font-bold tracking-widest text-[10px]">SUHBATDOSH QIDIRILMOQDA...</span>
                 </div>
               ) : (
                 <div className="text-center opacity-30">
                   <Play size={60} />
-                  <p className="mt-4 font-bold uppercase tracking-widest text-[10px]">BOSHLASHNI BOSING</p>
+                  <p className="mt-4 font-bold uppercase tracking-widest text-[10px]">STARTNI BOSING</p>
                 </div>
               )}
             </div>
