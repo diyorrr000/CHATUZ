@@ -4,7 +4,6 @@ import { Play, Square, User, Send, Moon, Sun, Paperclip, Download, ShieldCheck, 
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
-const APP_VERSION = "1.1.0";
 
 interface Message {
   text?: string;
@@ -403,15 +402,6 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">
-          <a href="https://t.me/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ color: '#3390ec', textDecoration: 'none' }}>TELEGRAM</a>
-          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
-          <a href="https://instagram.com/zafarvcd" target="_blank" rel="noopener noreferrer" style={{ color: '#e1306c', textDecoration: 'none' }}>INSTAGRAM</a>
-          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
-          <span style={{ opacity: 0.8 }}>@zafarvcd</span>
-          <span style={{ margin: '0 8px', opacity: 0.3 }}>|</span>
-          <span>v{APP_VERSION}</span>
-        </div>
         <div className="input-area">
           <button className="action-btn" onClick={partnerConnected ? nextChat : startChat} disabled={isSpying}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}

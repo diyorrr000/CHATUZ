@@ -26,7 +26,7 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
                 "2. Suhbatdoshni haqorat qilish, kamsitish va behayo so'zlar ishlatish qat'iyan man etiladi.",
                 "3. Har qanday turdagi reklama, spam yoki tijoriy havolalar tarqatish taqiqlanadi.",
                 "4. Noqonuniy materiallar, shaxsiy ma'lumotlar va pornografik kontent ulashish taqiqlanadi.",
-                "5. Qoidalarni buzgan foydalanuvchilar ogohlantirishsiz bloklanishi mumkin."
+
             ]
         },
         maxfiylik: {
