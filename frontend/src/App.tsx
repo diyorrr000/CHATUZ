@@ -22,9 +22,16 @@ const App = () => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
 
   const configuration = {
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+    ]
   };
 
   useEffect(() => {
@@ -43,26 +50,51 @@ const App = () => {
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
-      createPeerConnection(partnerId);
+
+      const pc = createPeerConnection(partnerId);
 
       if (initiator) {
-        const offer = await peerConnectionRef.current?.createOffer();
-        await peerConnectionRef.current?.setLocalDescription(offer);
-        socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
+        } catch (err) {
+          console.error('Failed to create offer:', err);
+        }
       }
     });
 
     socketRef.current.on('signal', async (data) => {
-      if (!peerConnectionRef.current) return;
-      if (data.type === 'offer') {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        const answer = await peerConnectionRef.current.createAnswer();
-        await peerConnectionRef.current.setLocalDescription(answer);
-        socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
-      } else if (data.type === 'answer') {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      } else if (data.type === 'candidate' && data.candidate) {
-        try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { }
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+
+      try {
+        if (data.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          // Process any candidates that arrived before the offer
+          while (pendingCandidates.current.length > 0) {
+            const candidate = pendingCandidates.current.shift();
+            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
+        } else if (data.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          // Process any candidates that arrived before the answer
+          while (pendingCandidates.current.length > 0) {
+            const candidate = pendingCandidates.current.shift();
+            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        } else if (data.type === 'candidate' && data.candidate) {
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } else {
+            pendingCandidates.current.push(data.candidate);
+          }
+        }
+      } catch (err) {
+        console.error('Signaling error:', err);
       }
     });
 
@@ -95,28 +127,41 @@ const App = () => {
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     } catch (err) {
       console.error('Media error:', err);
+      alert('Kamera yoki mikrofonga ruxsat berilmagan. Iltimos, brauzer sozlamalarini tekshiring.');
     }
   };
 
   const createPeerConnection = (partnerId: string) => {
     resetPeerConnection();
-    peerConnectionRef.current = new RTCPeerConnection(configuration);
+    pendingCandidates.current = [];
+
+    const pc = new RTCPeerConnection(configuration);
+    peerConnectionRef.current = pc;
 
     if (localStream) {
       localStream.getTracks().forEach(track => {
-        peerConnectionRef.current?.addTrack(track, localStream);
+        pc.addTrack(track, localStream);
       });
     }
 
-    peerConnectionRef.current.ontrack = (event) => {
+    pc.ontrack = (event) => {
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
 
-    peerConnectionRef.current.onicecandidate = (event) => {
+    pc.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
       }
     };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed') {
+        console.warn('WebRTC failed. This is likely due to NAT firewall blocks on mobile data.');
+      }
+    };
+
+    return pc;
   };
 
   const resetPeerConnection = () => {
@@ -127,6 +172,7 @@ const App = () => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    pendingCandidates.current = [];
   };
 
   const toggleChat = () => {
