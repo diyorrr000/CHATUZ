@@ -4,6 +4,7 @@ import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Downl
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
+const APP_VERSION = "1.0.8"; // To track if update is live
 
 interface Message {
   text?: string;
@@ -27,15 +28,11 @@ interface AdminGlobalMessage {
 }
 
 const App = () => {
-  // Safe state initialization
   const [userData, setUserData] = useState<{ nickname: string } | null>(() => {
     try {
       const saved = localStorage.getItem('chatuz_user');
       return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      console.error('LocalStorage error:', e);
-      return null;
-    }
+    } catch (e) { return null; }
   });
 
   const [inQueue, setInQueue] = useState(false);
@@ -57,55 +54,73 @@ const App = () => {
   const adminMsgEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Keep values for socket listeners to avoid closure issues
+  // Admin triggers state
+  const typedKeys = useRef<string>('');
+  const logoClicks = useRef<number>(0);
+
   const stateRef = useRef({ userData, inQueue, partnerConnected });
-  useEffect(() => {
-    stateRef.current = { userData, inQueue, partnerConnected };
-  }, [userData, inQueue, partnerConnected]);
+  useEffect(() => { stateRef.current = { userData, inQueue, partnerConnected }; }, [userData, inQueue, partnerConnected]);
 
   useEffect(() => {
     if (userData) localStorage.setItem('chatuz_user', JSON.stringify(userData));
   }, [userData]);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
 
-  const clearMessages = useCallback(() => setMessages([]), []);
+  const triggerAdminLogin = useCallback(() => {
+    const pass = prompt('Admin paroli:');
+    if (pass === '1212') {
+      socketRef.current?.emit('admin-login', pass);
+    } else if (pass !== null) {
+      alert('Noto\'g\'ri parol!');
+    }
+  }, []);
+
+  // Admin access listeners
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT') return;
+      typedKeys.current += e.key.toLowerCase();
+      if (typedKeys.current.includes('admin')) {
+        triggerAdminLogin();
+        typedKeys.current = '';
+      }
+      if (typedKeys.current.length > 10) typedKeys.current = typedKeys.current.slice(-5);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [triggerAdminLogin]);
+
+  const handleLogoClick = () => {
+    logoClicks.current += 1;
+    if (logoClicks.current >= 5) {
+      triggerAdminLogin();
+      logoClicks.current = 0;
+    }
+    setTimeout(() => { logoClicks.current = 0; }, 3000);
+  };
 
   const handlePartnerDisconnect = useCallback((data?: { reason: string }) => {
     setPartnerConnected(false);
     setInQueue(true);
     const leaveMsg = data?.reason === 'skipped'
-      ? "Suhbatdosh 'Keyingisi'ni bosdi. Yangi sirdosh qidirilmoqda..."
-      : "Suhbatdosh tark etdi. Yangi sirdosh qidirilmoqda...";
+      ? "Suhbatdosh 'Keyingisi'ni bosdi. Yangi qidirilmoqda..."
+      : "Suhbatdosh tark etdi. Yangi qidirilmoqda...";
     setMessages(prev => [...prev, { text: leaveMsg, sender: 'partner', timestamp: Date.now() }]);
   }, []);
 
-  // Socket setup
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000
-    });
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'], reconnection: true });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Connected to socket server');
       setIsConnected(true);
-      // If we were in queue or in chat, we need to rejoin if the connection dropped
       if (stateRef.current.userData && (stateRef.current.inQueue || stateRef.current.partnerConnected)) {
         socket.emit('join-queue', stateRef.current.userData);
       }
     });
 
-    socket.on('disconnect', () => {
-      console.log('Disconnected from socket server');
-      setIsConnected(false);
-    });
-
+    socket.on('disconnect', () => setIsConnected(false));
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
     socket.on('match-found', (data: { partnerNickname: string }) => {
@@ -113,22 +128,18 @@ const App = () => {
       setPartnerConnected(true);
       setPartnerNickname(data.partnerNickname);
       setMessages(prev => [...prev, {
-        text: `Suhbatdosh topildi: ${data.partnerNickname}! Savol berishingiz yoki salom yuborishingiz mumkin.`,
-        sender: 'partner',
-        senderNickname: data.partnerNickname,
-        timestamp: Date.now()
+        text: `Suhbatdosh topildi: ${data.partnerNickname}! Salom deng 😊`,
+        sender: 'partner', senderNickname: data.partnerNickname, timestamp: Date.now()
       }]);
     });
 
     socket.on('partner-disconnected', handlePartnerDisconnect);
-
-    socket.on('receive-message', (msg: any) => {
-      setMessages(prev => [...prev, { ...msg, sender: 'partner' }]);
-    });
+    socket.on('receive-message', (msg: any) => setMessages(prev => [...prev, { ...msg, sender: 'partner' }]));
 
     socket.on('admin-auth-success', () => {
       setIsAdmin(true);
       setShowAdminPanel(true);
+      alert('Admin muvaffaqiyatli kirdi!');
     });
 
     socket.on('admin-update', (data: AdminData) => setAdminData(data));
@@ -139,33 +150,25 @@ const App = () => {
     return () => { socket.disconnect(); };
   }, [handlePartnerDisconnect]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
-  useEffect(() => { adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [globalMessages]);
-
   const startChat = () => {
     if (!userData || !isConnected) return;
-    setInQueue(true);
-    clearMessages();
+    setInQueue(true); setMessages([]);
     socketRef.current?.emit('join-queue', userData);
   };
 
   const nextChat = () => {
     if (!isConnected) return;
-    setPartnerConnected(false);
-    setInQueue(true);
-    clearMessages();
+    setPartnerConnected(false); setInQueue(true); setMessages([]);
     socketRef.current?.emit('next-user');
   };
 
   const stopChat = () => {
-    setInQueue(false);
-    setPartnerConnected(false);
-    clearMessages();
-    socketRef.current?.emit('next-user'); // Moves user to queue, but we client-side stop
+    setInQueue(false); setPartnerConnected(false); setMessages([]);
+    socketRef.current?.emit('next-user');
   };
 
   const handleReset = () => {
-    if (confirm('Barcha ma\'lumotlarni o\'chirib, boshidan boshlaysizmi?')) {
+    if (confirm('Boshidan boshlaysizmi?')) {
       localStorage.removeItem('chatuz_user');
       window.location.reload();
     }
@@ -194,9 +197,10 @@ const App = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  if (!userData) {
-    return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
-  }
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [globalMessages]);
+
+  if (!userData) return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
 
   return (
     <div className="app-container chat-only">
@@ -204,11 +208,13 @@ const App = () => {
         <div className="admin-overlay">
           <div className="admin-modal wide">
             <div className="admin-header">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="text-blue-500" />
-                <h2 style={{ color: 'white' }}>Live Monitoring</h2>
-              </div>
+              <div className="flex items-center gap-2"><ShieldCheck className="text-blue-500" /><h2>Admin Panel</h2></div>
               <button className="close-admin" onClick={() => setShowAdminPanel(false)}>Yopish</button>
+            </div>
+            <div className="admin-stats">
+              <div className="stat-card"><Users size={20} /><div className="val">{adminData?.stats.total || 0}</div><div className="lab">Jami</div></div>
+              <div className="stat-card"><Activity size={20} /><div className="val">{adminData?.stats.inChat || 0}</div><div className="lab">Chatda</div></div>
+              <div className="stat-card"><Clock size={20} /><div className="val">{adminData?.stats.waiting || 0}</div><div className="lab">Kutmoqda</div></div>
             </div>
             <div className="admin-content-grid">
               <div className="admin-user-list scrollbar-hide">
@@ -216,10 +222,7 @@ const App = () => {
                   <thead><tr><th>NIK</th><th>STATUS</th></tr></thead>
                   <tbody>
                     {adminData?.users.map((u, i) => (
-                      <tr key={i}>
-                        <td className="font-bold text-blue-300">{u.nickname}</td>
-                        <td><span className={`status-pill ${u.status === 'Chatda' ? 'bg-green-500' : 'bg-blue-500'}`}>{u.status}</span></td>
-                      </tr>
+                      <tr key={i}><td>{u.nickname}</td><td>{u.status}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -241,18 +244,13 @@ const App = () => {
       )}
 
       <header className="chat-header">
-        <div className="logo" onClick={() => {
-          const pass = prompt('Admin paroli:');
-          if (pass === '1212') socketRef.current?.emit('admin-login', pass);
-        }} style={{ cursor: 'pointer' }}>
-          CHAT<span>UZ</span>
+        <div className="logo" onClick={handleLogoClick} style={{ cursor: 'pointer' }}>
+          CHAT<span>UZ</span> {isAdmin && <ShieldCheck size={14} className="inline ml-1 text-blue-500" />}
         </div>
         <div className="header-info">
           {!isConnected && <div className="online-badge" style={{ background: '#ef4444' }}>Bog'lanish...</div>}
           <div className="online-badge"><div className="dot"></div>{onlineCount} kishi</div>
-          <button className="theme-toggle-btn" onClick={handleReset} title="Boshidan boshlash">
-            <RefreshCw size={20} />
-          </button>
+          <button className="theme-toggle-btn" onClick={handleReset} title="Reset"><RefreshCw size={20} /></button>
           <button className="theme-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
@@ -262,24 +260,20 @@ const App = () => {
       <main className="chat-main">
         {partnerConnected ? (
           <div className="partner-info-bar">
-            <User size={14} /> <span>Suhbat: <strong>{partnerNickname}</strong></span>
+            <User size={14} /> <span>Suhbatdosh: <strong>{partnerNickname}</strong></span>
             <button className="next-btn" onClick={nextChat}>KEYINGISI</button>
           </div>
         ) : (
           <div className="search-status">
             {inQueue ? (
               <div className="loader-container">
-                <div className="spinner"></div>
-                <p>Navbatdasiz... Suhbatdosh kutilmoqda</p>
-                <button className="skip-btn" onClick={stopChat} style={{ marginTop: '20px', background: 'rgba(255,255,255,0.1)', padding: '10px 20px', borderRadius: '12px', fontSize: '14px' }}>TO'XTATISH</button>
+                <div className="spinner"></div><p>Siz navbatdasiz...</p>
+                <button className="skip-btn" onClick={stopChat} style={{ marginTop: '20px' }}>TO'XTATISH</button>
               </div>
             ) : (
               <div className="start-prompt">
-                <Play size={48} />
-                <p>Assalomu alaykum, <strong>{userData.nickname}</strong></p>
-                <button className="main-start-btn" onClick={startChat} disabled={!isConnected}>
-                  {isConnected ? 'CHATNI BOSHLASH' : 'ULANILMOQDA...'}
-                </button>
+                <Play size={48} /><p>Salom, <strong>{userData.nickname}</strong></p>
+                <button className="main-start-btn" onClick={startChat}>CHATNI BOSHLASH</button>
               </div>
             )}
           </div>
@@ -289,17 +283,11 @@ const App = () => {
           {messages.map((m, i) => (
             <div key={i} className={`message-wrapper ${m.sender}`}>
               <div className="message-content">
-                <span className="nickname-label" style={{ fontSize: '9px', opacity: 0.6, marginBottom: '2px' }}>
-                  {m.sender === 'me' ? 'Siz' : m.senderNickname}
-                </span>
+                <span className="nickname-label"> {m.sender === 'me' ? 'Siz' : m.senderNickname} </span>
                 {m.text && <p className="text">{m.text}</p>}
                 {m.file && (
                   <div className="file-attachment">
-                    {m.file.type.startsWith('image/') ? (
-                      <img src={m.file.data} alt={m.file.name} className="shared-image" />
-                    ) : (
-                      <div className="file-info"><FileIcon size={24} /><span className="file-name">{m.file.name}</span></div>
-                    )}
+                    <img src={m.file.data} alt="file" className="shared-image" />
                     <a href={m.file.data} download={m.file.name} className="download-btn"><Download size={16} /></a>
                   </div>
                 )}
@@ -312,20 +300,15 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
-        <div className="author-tag">@secureXXX | Siz: {userData.nickname}</div>
+        <div className="author-tag">@secureXXX | {userData.nickname} | v{APP_VERSION}</div>
         <div className="input-area">
-          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat} title="Start / Keyingisi">
+          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
           </button>
           <div className="input-wrapper">
             <button className="file-btn" onClick={() => fileInputRef.current?.click()}><Paperclip size={20} /></button>
             <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
-            <input
-              type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder={partnerConnected ? "Xabar yozing..." : "Suhbatdosh yo'q"}
-              disabled={!partnerConnected}
-            />
+            <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder="Xabar..." disabled={!partnerConnected} />
             <button className="send-btn" onClick={() => sendMessage()} disabled={!partnerConnected || !inputValue.trim()}><Send size={20} /></button>
           </div>
         </div>
