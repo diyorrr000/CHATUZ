@@ -158,6 +158,53 @@ io.on('connection', (socket) => {
     socket.on('send-message', (payload) => {
         const chat = activeChats.get(socket.id);
         const userData = users.get(socket.id);
+        if (!userData) return;
+
+        // --- FILTRATSIYA LOGIKASI ---
+        const badWords = ['soat', 'jalab', 'skachat', 'am', 'qoxtak', 'qotoq', 'itdan tarqagan', 'onangni', 'isqirt']; // Namuna
+        const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+|\.uz|\.com|\.net|\.org|\.me)/gi;
+        const mentionPattern = /@[a-zA-Z0-9_]+/g;
+
+        let isViolation = false;
+        let violationType = '';
+
+        if (payload.text) {
+            const lowerText = payload.text.toLowerCase();
+            // 1. Haqoratlar
+            if (badWords.some(word => lowerText.includes(word))) {
+                isViolation = true;
+                violationType = "haqoratli so'z";
+            }
+            // 2. Reklama/Havolalar
+            if (urlPattern.test(payload.text)) {
+                isViolation = true;
+                violationType = "reklama/havola";
+            }
+            // 3. @username chorlovi
+            if (mentionPattern.test(payload.text)) {
+                isViolation = true;
+                violationType = "@username chorlovi";
+            }
+        }
+
+        if (isViolation && !superAdmins.has(socket.id)) {
+            const warningMsg = `DIQQAT! Sizning xabaringizda ${violationType} aniqlandi va o'chirildi. Qoidalarni buzish bloklanishga olib kelishi mumkin.`;
+            socket.emit('receive-message', {
+                sender: 'system',
+                text: warningMsg,
+                timestamp: Date.now()
+            });
+
+            if (chat && chat.partnerId) {
+                io.to(chat.partnerId).emit('receive-message', {
+                    sender: 'system',
+                    text: "Suhbatdoshingiz qoidalarni buzganligi sababli uning xabari bloklandi.",
+                    timestamp: Date.now()
+                });
+            }
+            return; // Xabar yuborilmaydi
+        }
+        // --- FILTRATSIYA TUGADI ---
 
         if (payload.roomId) { // Group message
             socket.to(payload.roomId).emit('group-message', {
