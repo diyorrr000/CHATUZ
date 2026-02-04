@@ -10,7 +10,7 @@ interface Message {
   file?: {
     name: string;
     type: string;
-    data: string; // Base64
+    data: string;
   };
   sender: 'me' | 'partner';
   senderNickname?: string;
@@ -44,27 +44,25 @@ const App = () => {
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
-  // Admin states
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [globalMessages, setGlobalMessages] = useState<AdminGlobalMessage[]>([]);
+
   const typedKeys = useRef<string>('');
   const logoClicks = useRef<number>(0);
-
   const socketRef = useRef<Socket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const adminMsgEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Use a ref for userData to avoid socket reconnection on change
+  const userDataRef = useRef(userData);
+  useEffect(() => { userDataRef.current = userData; }, [userData]);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  // Scroll admin messages
-  useEffect(() => {
-    adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [globalMessages]);
 
   const triggerAdminLogin = () => {
     const pass = prompt('Admin paroli:');
@@ -89,18 +87,17 @@ const App = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleLogoClick = () => {
-    logoClicks.current += 1;
-    if (logoClicks.current >= 5) {
-      triggerAdminLogin();
-      logoClicks.current = 0;
-    }
-    setTimeout(() => { logoClicks.current = 0; }, 3000);
-  };
-
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5
+    });
     socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Connected to server');
+    });
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
@@ -119,7 +116,9 @@ const App = () => {
     socket.on('partner-disconnected', (data?: { reason: string }) => {
       setPartnerConnected(false);
       setInQueue(true);
-      socketRef.current?.emit('join-queue', userData);
+      // Use ref to get the current nickname even in the closure
+      socket.emit('join-queue', userDataRef.current);
+
       const leaveMessage = data?.reason === 'skipped'
         ? "Suhbatdosh 'Keyingisi' tugmasini bosdi. Yangi suhbatdosh qidirilmoqda..."
         : "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...";
@@ -136,20 +135,21 @@ const App = () => {
       alert('Admin sifatida muvaffaqiyatli kirdingiz!');
     });
 
-    socket.on('admin-update', (data: AdminData) => {
-      setAdminData(data);
-    });
-
+    socket.on('admin-update', (data: AdminData) => setAdminData(data));
     socket.on('admin-new-message', (msg: AdminGlobalMessage) => {
-      setGlobalMessages(prev => [...prev, msg].slice(-100)); // Keep last 100
+      setGlobalMessages(prev => [...prev, msg].slice(-100));
     });
 
     return () => { socket.disconnect(); };
-  }, [userData]);
+  }, []); // Connect only once
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [globalMessages]);
 
   const toggleChat = () => {
     if (!inQueue && !partnerConnected) {
@@ -190,6 +190,15 @@ const App = () => {
     };
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleLogoClick = () => {
+    logoClicks.current += 1;
+    if (logoClicks.current >= 5) {
+      triggerAdminLogin();
+      logoClicks.current = 0;
+    }
+    setTimeout(() => { logoClicks.current = 0; }, 3000);
   };
 
   if (!userData) {
