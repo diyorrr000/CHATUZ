@@ -68,20 +68,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('signal', (data) => {
-        const chat = activeChats.get(socket.id);
-        if (chat) {
-            io.to(chat.partnerId).emit('signal', { ...data, from: socket.id });
-        }
-    });
-
     socket.on('send-message', (message) => {
         const chat = activeChats.get(socket.id);
         if (chat) {
-            io.to(chat.partnerId).emit('receive-message', {
-                text: message,
-                sender: 'partner'
-            });
+            io.to(chat.partnerId).emit('receive-message', message);
         }
     });
 

@@ -1,42 +1,34 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, Info } from 'lucide-react';
+import { Play, Square, Globe, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
-const SOCKET_URL = 'https://chatuz-backend.onrender.com';
+const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
+
+interface Message {
+  text?: string;
+  file?: {
+    name: string;
+    type: string;
+    data: string; // Base64
+  };
+  sender: 'me' | 'partner';
+  timestamp: number;
+}
 
 const App = () => {
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
   const [partnerData, setPartnerData] = useState<{ age: string, country: string } | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [camOn, setCamOn] = useState(true);
-  const [micOn, setMicOn] = useState(true);
-  const [messages, setMessages] = useState<{ text: string, sender: 'me' | 'partner' }[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [debugLog, setDebugLog] = useState<string>('Tizim tayyor');
-  const [iceState, setIceState] = useState<string>('new');
 
   const socketRef = useRef<Socket | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
-  const pendingSignals = useRef<any[]>([]);
-
-  const configuration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-      { urls: 'stun:stun.nextcloud.com:443' }
-    ],
-    iceCandidatePoolSize: 10,
-  };
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -48,166 +40,39 @@ const App = () => {
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
-    socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      setDebugLog('Suhbatdosh topildi...');
+    socket.on('match-found', ({ partnerInfo }) => {
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
-      setMessages([]);
-
-      const pc = createPeerConnection(partnerId);
-
-      if (initiator) {
-        setTimeout(async () => {
-          try {
-            setDebugLog('So\'rov yuborilmoqda...');
-            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-            await pc.setLocalDescription(offer);
-            socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
-          } catch (err) {
-            setDebugLog('Offer xatosi: ' + err);
-          }
-        }, 1500); // 1.5s delay for better stability
-      }
-
-      while (pendingSignals.current.length > 0) {
-        const sig = pendingSignals.current.shift();
-        handleSignal(sig, pc);
-      }
-    });
-
-    socket.on('signal', async (data) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) {
-        pendingSignals.current.push(data);
-        return;
-      }
-      handleSignal(data, pc);
+      setMessages([{
+        text: "Suhbatdosh topildi! Salom deng 😊",
+        sender: 'partner',
+        timestamp: Date.now()
+      }]);
     });
 
     socket.on('partner-disconnected', () => {
-      setDebugLog('Suhbatdosh tark etdi');
-      handlePartnerLeave();
+      setPartnerConnected(false);
+      setPartnerData(null);
+      setInQueue(true);
+      socketRef.current?.emit('join-queue', userData);
+      setMessages(prev => [...prev, {
+        text: "Suhbatdosh tark etdi. Yangi suhbatdosh qidirilmoqda...",
+        sender: 'partner',
+        timestamp: Date.now()
+      }]);
     });
 
-    socket.on('receive-message', (msg) => {
-      setMessages(prev => [...prev, msg]);
+    socket.on('receive-message', (msg: any) => {
+      setMessages(prev => [...prev, { ...msg, sender: 'partner', timestamp: Date.now() }]);
     });
 
     return () => { socket.disconnect(); };
-  }, []);
-
-  const handleSignal = async (data: any, pc: RTCPeerConnection) => {
-    try {
-      if (data.type === 'offer') {
-        setDebugLog('Taklif keldi, javob berilmoqda...');
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        while (pendingCandidates.current.length > 0) {
-          const candidate = pendingCandidates.current.shift();
-          if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socketRef.current?.emit('signal', { type: 'answer', sdp: answer, to: data.from });
-      } else if (data.type === 'answer') {
-        setDebugLog('Javob keldi, ulanmoqda...');
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        while (pendingCandidates.current.length > 0) {
-          const candidate = pendingCandidates.current.shift();
-          if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } else if (data.type === 'candidate' && data.candidate) {
-        if (pc.remoteDescription && pc.remoteDescription.type) {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } else {
-          pendingCandidates.current.push(data.candidate);
-        }
-      }
-    } catch (err) {
-      setDebugLog('Signals xatosi: ' + err);
-    }
-  };
-
-  const handlePartnerLeave = () => {
-    resetPeerConnection();
-    setPartnerConnected(false);
-    setPartnerData(null);
-    setInQueue(true);
-    socketRef.current?.emit('join-queue', userData);
-  };
-
-  useEffect(() => {
-    if (userData) {
-      initMedia().then(() => {
-        setInQueue(true);
-        socketRef.current?.emit('join-queue', userData);
-      });
-    }
   }, [userData]);
 
-  const initMedia = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(stream);
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      setDebugLog('Kamera tayyor');
-      return stream;
-    } catch (err) {
-      setDebugLog('Kamera xatosi: ' + err);
-      alert('Kamera va mikrofonga ruxsat bering!');
-    }
-  };
-
-  const createPeerConnection = (partnerId: string) => {
-    resetPeerConnection();
-    pendingCandidates.current = [];
-
-    const pc = new RTCPeerConnection(configuration);
-    peerConnectionRef.current = pc;
-
-    if (localStream) {
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-    }
-
-    pc.ontrack = (event) => {
-      setDebugLog('Video oqimi qabul qilindi');
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-        remoteVideoRef.current.play().catch(e => {
-          setDebugLog('Avtomatik ijro to\'sildi');
-        });
-      }
-    };
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      setIceState(pc.iceConnectionState);
-      console.log('ICE:', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'failed') {
-        setDebugLog('Ulanish amalga oshmadi (VPN/Firewall)');
-      }
-    };
-
-    return pc;
-  };
-
-  const resetPeerConnection = () => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    pendingCandidates.current = [];
-    pendingSignals.current = [];
-    setIceState('new');
-  };
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const toggleChat = () => {
     if (!inQueue && !partnerConnected) {
@@ -215,7 +80,6 @@ const App = () => {
       socketRef.current?.emit('join-queue', userData);
     } else {
       setInQueue(false);
-      resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
       socketRef.current?.emit('next-user');
@@ -223,7 +87,6 @@ const App = () => {
   };
 
   const nextUser = () => {
-    resetPeerConnection();
     setPartnerConnected(false);
     setPartnerData(null);
     setMessages([]);
@@ -231,28 +94,43 @@ const App = () => {
     socketRef.current?.emit('next-user');
   };
 
-  const toggleCam = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-      setCamOn(videoTrack.enabled);
-    }
-  };
-
-  const toggleMic = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      setMicOn(audioTrack.enabled);
-    }
-  };
-
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
+  const sendMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!inputValue.trim() || !partnerConnected) return;
-    socketRef.current?.emit('send-message', inputValue);
-    setMessages(prev => [...prev, { text: inputValue, sender: 'me' }]);
+
+    const msg: Partial<Message> = { text: inputValue };
+    socketRef.current?.emit('send-message', msg);
+    setMessages(prev => [...prev, { text: inputValue, sender: 'me', timestamp: Date.now() }]);
     setInputValue('');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !partnerConnected) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Data = event.target?.result as string;
+      const fileMsg: Partial<Message> = {
+        file: {
+          name: file.name,
+          type: file.type,
+          data: base64Data
+        }
+      };
+      socketRef.current?.emit('send-message', fileMsg);
+      setMessages(prev => [...prev, {
+        file: {
+          name: file.name,
+          type: file.type,
+          data: base64Data
+        },
+        sender: 'me',
+        timestamp: Date.now()
+      }]);
+    };
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   if (!userData) {
@@ -260,126 +138,103 @@ const App = () => {
   }
 
   return (
-    <div className="app-container">
-      <div className="video-section">
-        {/* Local Video */}
-        <div className="video-box">
-          <div className="badge">SIZ</div>
-          <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
-          {!camOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-950">
-              <CameraOff size={64} className="text-white/20" />
-            </div>
-          )}
-          <div className="absolute top-4 right-4 flex gap-2">
-            <button onClick={toggleMic} className={`p-2 rounded-lg ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {micOn ? <Mic size={18} /> : <MicOff size={18} />}
-            </button>
-            <button onClick={toggleCam} className={`p-2 rounded-lg ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
-              {camOn ? <Camera size={18} /> : <CameraOff size={18} />}
-            </button>
+    <div className="app-container chat-only">
+      <header className="chat-header">
+        <div className="logo">CHAT<span>UZ</span></div>
+        <div className="header-info">
+          <div className="online-badge">
+            <div className="dot"></div>
+            {onlineCount} kishi online
           </div>
+          <button className="theme-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
         </div>
+      </header>
 
-        {/* Remote Video */}
-        <div className="video-box" onClick={() => remoteVideoRef.current?.play()}>
-          <div className="badge">{partnerConnected ? "SUHBATDOSH" : "QIDIRILMOQDA..."}</div>
-          {partnerConnected ? (
-            <>
-              <video ref={remoteVideoRef} autoPlay playsInline />
-              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                {(iceState === 'checking' || iceState === 'new') && (
-                  <div className="flex flex-col items-center bg-black/40 p-4 rounded-2xl backdrop-blur-sm">
-                    <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
-                    <span className="text-white text-[10px] uppercase font-bold tracking-widest">{debugLog}</span>
+      <main className="chat-main">
+        {partnerConnected ? (
+          <div className="partner-info-bar">
+            <Globe size={14} /> <span>{partnerData?.country}</span>
+            <span className="separator">|</span>
+            <User size={14} /> <span>{partnerData?.age} yosh</span>
+            <button className="next-btn" onClick={nextUser}>KEYINGISI</button>
+          </div>
+        ) : (
+          <div className="search-status">
+            {inQueue ? (
+              <div className="loader-container">
+                <div className="spinner"></div>
+                <p>Suhbatdosh qidirilmoqda...</p>
+              </div>
+            ) : (
+              <div className="start-prompt">
+                <Play size={48} />
+                <p>Suhbatni boshlash uchun START tugmasini bosing</p>
+                <button className="main-start-btn" onClick={toggleChat}>START</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="messages-display">
+          {messages.map((m, i) => (
+            <div key={i} className={`message-wrapper ${m.sender}`}>
+              <div className="message-content">
+                {m.text && <p className="text">{m.text}</p>}
+                {m.file && (
+                  <div className="file-attachment">
+                    {m.file.type.startsWith('image/') ? (
+                      <img src={m.file.data} alt={m.file.name} className="shared-image" />
+                    ) : (
+                      <div className="file-info">
+                        <FileIcon size={24} />
+                        <span className="file-name">{m.file.name}</span>
+                      </div>
+                    )}
+                    <a href={m.file.data} download={m.file.name} className="download-btn">
+                      <Download size={16} />
+                    </a>
                   </div>
                 )}
+                <span className="time">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-              <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
-                <span className="flex items-center gap-1"><Globe size={12} /> {partnerData?.country}</span>
-                <span className="flex items-center gap-1"><User size={12} /> {partnerData?.age} yosh</span>
-              </div>
-            </>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center bg-gray-900/40">
-              {inQueue ? (
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-blue-400 font-bold tracking-widest text-[10px]">SUHBATDOSH QIDIRILMOQDA...</span>
-                </div>
-              ) : (
-                <div className="text-center opacity-30">
-                  <Play size={60} />
-                  <p className="mt-4 font-bold uppercase tracking-widest text-[10px]">STARTNI BOSING</p>
-                </div>
-              )}
             </div>
-          )}
-          {partnerConnected && (
-            <button
-              onClick={(e) => { e.stopPropagation(); socketRef.current?.emit('report-user'); nextUser(); }}
-              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500"
-            >
-              <AlertCircle size={18} />
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+      </main>
+
+      <footer className="chat-footer">
+        <div className="input-area">
+          <button className="action-btn" onClick={toggleChat} title={inQueue || partnerConnected ? "To'xtatish" : "Boshlash"}>
+            {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
+          </button>
+
+          <div className="input-wrapper">
+            <button className="file-btn" onClick={() => fileInputRef.current?.click()}>
+              <Paperclip size={20} />
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* Debug Mini Info Bar */}
-      <div className="bg-blue-600/10 border-y border-white/5 px-4 py-1 flex items-center justify-between text-[9px] font-bold text-blue-400 uppercase tracking-tighter">
-        <div className="flex items-center gap-2">
-          <Info size={10} />
-          <span>STATUS: {debugLog}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>ICE: {iceState}</span>
-          <div className={`w-1.5 h-1.5 rounded-full ${iceState === 'connected' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-        </div>
-      </div>
-
-      <div className="bottom-panel">
-        <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
-          {theme === 'dark' ? <Sun size={20} color="#facc15" /> : <Moon size={20} color="#3b82f6" />}
-        </button>
-
-        <div className="controls-group">
-          <div onClick={toggleChat} className={`control-item ${(inQueue || partnerConnected) ? 'active' : ''}`}>
-            {(inQueue || partnerConnected) ? <Square size={28} /> : <Play size={28} fill="currentColor" />}
-            <span>{(inQueue || partnerConnected) ? "STOP" : "START"}</span>
-          </div>
-
-          <div onClick={nextUser} className={`control-item ${(!inQueue && !partnerConnected) ? 'disabled' : ''}`}>
-            <SkipForward size={28} fill="currentColor" />
-            <span>KEYINGISI</span>
-          </div>
-        </div>
-
-        <div className="chat-container">
-          <div className="chat-messages scrollbar-hide">
-            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Xabarlar yo'q...</p>}
-            {messages.map((m, i) => (
-              <div key={i} style={{ textAlign: m.sender === 'me' ? 'right' : 'left', marginBottom: '4px' }}>
-                <span style={{
-                  display: 'inline-block',
-                  padding: '4px 10px',
-                  borderRadius: '10px',
-                  backgroundColor: m.sender === 'me' ? '#3b82f6' : 'rgba(255,255,255,0.1)',
-                  color: 'white'
-                }}>
-                  {m.text}
-                </span>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={sendMessage} className="chat-form">
-            <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Xabar..." />
-            <button type="submit" style={{ background: 'transparent', border: 'none', color: '#3b82f6', padding: '0 10px' }}>
-              <Send size={18} />
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              onChange={handleFileUpload}
+            />
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              placeholder={partnerConnected ? "Xabar yozing..." : "Suhbatdosh ulanmagan"}
+              disabled={!partnerConnected}
+            />
+            <button className="send-btn" onClick={() => sendMessage()} disabled={!partnerConnected || !inputValue.trim()}>
+              <Send size={20} />
             </button>
-          </form>
+          </div>
         </div>
-      </div>
+      </footer>
     </div>
   );
 };
