@@ -17,9 +17,8 @@ const PORT = process.env.PORT || 5000;
 let waitingQueue = [];
 const activeChats = new Map(); // socket.id -> { partnerId, pairId }
 const users = new Map(); // socket.id -> { nickname, ip, uid }
-const currentAdmins = new Set(); // socket.id of active admins (any level)
 const superAdmins = new Set(); // socket.id of users who logged in with password
-const permanentAdmins = new Set(); // uids of permanent admins
+const permanentKichikAdmins = new Set(); // uids of regular admins (border only)
 const groupRooms = new Map(); // roomId -> { name, creatorId, members: Set(socket.id) }
 
 function getClientIP(socket) {
@@ -30,8 +29,7 @@ function getClientIP(socket) {
 function broadcastAdminUpdate() {
     const userList = Array.from(users.entries()).map(([id, data]) => {
         const isSuper = superAdmins.has(id);
-        const isPermanent = data.uid && permanentAdmins.has(data.uid);
-        const isCurrent = currentAdmins.has(id);
+        const isKichik = data.uid && permanentKichikAdmins.has(data.uid);
 
         return {
             id,
@@ -39,13 +37,14 @@ function broadcastAdminUpdate() {
             ip: data.ip,
             uid: data.uid,
             isSuperAdmin: isSuper,
-            isKichikAdmin: (isPermanent || isCurrent) && !isSuper,
+            isKichikAdmin: isKichik && !isSuper,
             status: activeChats.has(id) ? 'Chatda' : (waitingQueue.find(u => u.id === id) ? 'Navbatda' : 'Online'),
             chatPartnerId: activeChats.get(id)?.partnerId
         };
     });
 
-    io.to('admin-room').emit('admin-update', {
+    // ONLY broadcast detailed list to SUPER ADMINS
+    io.to('super-admin-room').emit('admin-update', {
         users: userList,
         stats: {
             total: io.engine.clientsCount,
@@ -67,9 +66,9 @@ io.on('connection', (socket) => {
         const uid = data?.uid;
         if (uid) {
             users.set(socket.id, { ...users.get(socket.id), uid });
-            if (permanentAdmins.has(uid)) {
-                currentAdmins.add(socket.id);
-                socket.join('admin-room');
+
+            // Auto-notify if they are Kichik admin (for styling)
+            if (permanentKichikAdmins.has(uid)) {
                 socket.emit('admin-auth-success', { level: 'kichik' });
             }
             broadcastAdminUpdate();
@@ -91,10 +90,7 @@ io.on('connection', (socket) => {
         if (superAdmins.has(socket.id)) {
             const targetUser = users.get(targetId);
             if (targetUser && targetUser.uid) {
-                permanentAdmins.add(targetUser.uid);
-                currentAdmins.add(targetId);
-                const targetSocket = io.sockets.sockets.get(targetId);
-                if (targetSocket) targetSocket.join('admin-room');
+                permanentKichikAdmins.add(targetUser.uid);
                 io.to(targetId).emit('admin-auth-success', { level: 'kichik' });
                 broadcastAdminUpdate();
             }
@@ -105,10 +101,7 @@ io.on('connection', (socket) => {
         if (superAdmins.has(socket.id)) {
             const targetUser = users.get(targetId);
             if (targetUser && targetUser.uid) {
-                permanentAdmins.delete(targetUser.uid);
-                currentAdmins.delete(targetId);
-                const targetSocket = io.sockets.sockets.get(targetId);
-                if (targetSocket) targetSocket.leave('admin-room');
+                permanentKichikAdmins.delete(targetUser.uid);
                 io.to(targetId).emit('admin-revoked');
                 broadcastAdminUpdate();
             }
@@ -119,9 +112,10 @@ io.on('connection', (socket) => {
         if (superAdmins.has(socket.id)) {
             const chat = activeChats.get(targetId);
             if (chat) {
+                const partnerId = chat.partnerId;
                 socket.emit('spy-link-ready', {
                     partner1: users.get(targetId)?.nickname,
-                    partner2: users.get(chat.partnerId)?.nickname,
+                    partner2: users.get(partnerId)?.nickname,
                     pairId: chat.pairId
                 });
                 socket.join(`chat-${chat.pairId}`);
@@ -130,7 +124,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('create-group', (roomName) => {
-        if (currentAdmins.has(socket.id) || superAdmins.has(socket.id)) {
+        if (superAdmins.has(socket.id)) {
             const roomId = 'group_' + uuidv4();
             groupRooms.set(roomId, { name: roomName, creatorId: socket.id, members: new Set([socket.id]) });
             socket.join(roomId);
@@ -169,7 +163,8 @@ io.on('connection', (socket) => {
             socket.to(payload.roomId).emit('group-message', {
                 ...payload,
                 senderNickname: userData?.nickname,
-                isAdmin: currentAdmins.has(socket.id) || superAdmins.has(socket.id),
+                isAdmin: superAdmins.has(socket.id) || (userData?.uid && permanentKichikAdmins.has(userData.uid)),
+                isSuperAdmin: superAdmins.has(socket.id),
                 timestamp: Date.now()
             });
             return;
@@ -177,7 +172,7 @@ io.on('connection', (socket) => {
 
         if (chat && chat.partnerId) {
             const isMsgSuper = superAdmins.has(socket.id);
-            const isMsgKichik = (currentAdmins.has(socket.id) || (userData?.uid && permanentAdmins.has(userData.uid))) && !isMsgSuper;
+            const isMsgKichik = userData?.uid && permanentKichikAdmins.has(userData.uid) && !isMsgSuper;
 
             const messageData = {
                 ...payload,
@@ -187,8 +182,10 @@ io.on('connection', (socket) => {
                 timestamp: Date.now()
             };
 
+            // Use .to() to broadast to the room (includes spies)
             socket.to(`chat-${chat.pairId}`).emit('receive-message', messageData);
 
+            // Log ONLY to super admins
             io.to('super-admin-room').emit('admin-new-message', {
                 from: userData?.nickname || 'Anon',
                 to: users.get(chat.partnerId)?.nickname || 'Anon',
@@ -201,10 +198,8 @@ io.on('connection', (socket) => {
 
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
-            socket.join('admin-room');
             socket.join('super-admin-room');
             superAdmins.add(socket.id);
-            currentAdmins.add(socket.id);
             socket.emit('admin-auth-success', { level: 'katta' });
             broadcastAdminUpdate();
         }
@@ -213,7 +208,6 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         cleanupUser(socket.id);
         users.delete(socket.id);
-        currentAdmins.delete(socket.id);
         superAdmins.delete(socket.id);
 
         // Cleanup groups

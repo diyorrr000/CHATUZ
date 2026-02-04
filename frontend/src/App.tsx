@@ -4,7 +4,7 @@ import { Play, Square, User, Send, Moon, Sun, Paperclip, Download, ShieldCheck, 
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
-const APP_VERSION = "1.0.9";
+const APP_VERSION = "1.1.0";
 
 interface Message {
   text?: string;
@@ -49,6 +49,7 @@ const App = () => {
 
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
+  const [isSpying, setIsSpying] = useState(false);
   const [partnerNickname, setPartnerNickname] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -113,6 +114,7 @@ const App = () => {
 
   const handlePartnerDisconnect = useCallback((data?: { reason: string }) => {
     setPartnerConnected(false);
+    setIsSpying(false);
     setInQueue(true);
     const leaveMsg = data?.reason === 'skipped' ? "Suhbatdosh keyingisiga o'tdi." : "Suhbatdosh tark etdi.";
     setMessages(prev => [...prev, { text: leaveMsg, sender: 'system', timestamp: Date.now() }]);
@@ -134,7 +136,7 @@ const App = () => {
     socket.on('disconnect', () => setIsConnected(false));
     socket.on('online-count', (count: number) => setOnlineCount(count));
     socket.on('match-found', (data: { partnerNickname: string }) => {
-      setInQueue(false); setPartnerConnected(true); setPartnerNickname(data.partnerNickname);
+      setInQueue(false); setPartnerConnected(true); setIsSpying(false); setPartnerNickname(data.partnerNickname);
       setMessages([{ text: `Suhbatdosh topildi: ${data.partnerNickname}`, sender: 'system', timestamp: Date.now() }]);
     });
     socket.on('partner-disconnected', handlePartnerDisconnect);
@@ -149,22 +151,23 @@ const App = () => {
     });
 
     socket.on('admin-auth-success', (data: { level: 'katta' | 'kichik' }) => {
-      setIsAdmin(true); setAdminLevel(data.level); setShowAdminPanel(true);
+      setIsAdmin(true); setAdminLevel(data.level);
+      if (data.level === 'katta') setShowAdminPanel(true);
     });
     socket.on('admin-update', (data: AdminData) => setAdminData(data));
     socket.on('admin-new-message', (msg: AdminGlobalMessage) => setGlobalMessages(prev => [...prev, msg].slice(-100)));
     socket.on('admin-revoked', () => { setIsAdmin(false); setAdminLevel(null); setShowAdminPanel(false); alert('Huquqlaringiz olindi.'); });
 
     socket.on('spy-link-ready', (data: any) => {
-      setShowAdminPanel(false); setPartnerConnected(true); setPartnerNickname(`${data.partner1} & ${data.partner2}`);
+      setShowAdminPanel(false); setPartnerConnected(false); setIsSpying(true); setPartnerNickname(`${data.partner1} & ${data.partner2}`);
       setMessages([{ text: `Spy rejimiga ulandingiz: ${data.partner1} vs ${data.partner2}`, sender: 'system', timestamp: Date.now() }]);
     });
 
     socket.on('group-created', (group: any) => { setCurrentGroup(group); setMessages([]); setShowAdminPanel(false); });
-    socket.on('group-joined', (group: any) => { setCurrentGroup(group); setMessages([]); setInQueue(false); setPartnerConnected(false); });
+    socket.on('group-joined', (group: any) => { setCurrentGroup(group); setMessages([]); setInQueue(false); setPartnerConnected(false); setIsSpying(false); });
     socket.on('group-invitation', (data: any) => setInvitation(data));
     socket.on('group-message', (msg: any) => {
-      setMessages(prev => [...prev, { ...msg, sender: msg.senderNickname === userData?.nickname ? 'me' : 'partner' }]);
+      setMessages(prev => [...prev, { ...msg, sender: 'partner' }]);
     });
 
     return () => { socket.disconnect(); };
@@ -176,16 +179,16 @@ const App = () => {
   };
   const nextChat = () => {
     if (!isConnected) return;
-    setPartnerConnected(false); setInQueue(true); setMessages([]); socketRef.current?.emit('next-user');
+    setPartnerConnected(false); setIsSpying(false); setInQueue(true); setMessages([]); socketRef.current?.emit('next-user');
   };
   const stopChat = () => {
-    setInQueue(false); setPartnerConnected(false); setMessages([]); socketRef.current?.emit('next-user');
+    setInQueue(false); setPartnerConnected(false); setIsSpying(false); setMessages([]); socketRef.current?.emit('next-user');
   };
   const handleReset = () => { if (confirm('Boshidan boshlaysizmi?')) { localStorage.clear(); window.location.reload(); } };
 
   const sendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputValue.trim() || !isConnected) return;
+    if (!inputValue.trim() || !isConnected || isSpying) return;
     const isRoom = !!currentGroup;
     if (!isRoom && !partnerConnected) return;
 
@@ -204,7 +207,7 @@ const App = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value);
-    if (!partnerConnected || currentGroup) return;
+    if (!partnerConnected || currentGroup || isSpying) return;
     socketRef.current?.emit('typing', true);
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => socketRef.current?.emit('typing', false), 2000);
@@ -212,7 +215,7 @@ const App = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !isConnected) return;
+    if (!file || !isConnected || isSpying) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64Data = event.target?.result as string;
@@ -257,13 +260,13 @@ const App = () => {
         </div>
       )}
 
-      {showAdminPanel && isAdmin && (
+      {showAdminPanel && adminLevel === 'katta' && (
         <div className="admin-overlay">
           <div className="admin-modal wide">
             <div className="admin-header">
               <div className="flex items-center gap-2">
-                <ShieldCheck className={adminLevel === 'katta' ? "text-yellow-500" : "text-blue-500"} />
-                <h2>{adminLevel === 'katta' ? "Katta Admin Panel" : "Kichik Admin Panel"}</h2>
+                <ShieldCheck className="text-yellow-500" />
+                <h2>Katta Admin Panel</h2>
               </div>
               <div className="flex gap-2">
                 <button className="grant-btn flex items-center gap-1" onClick={createGroup}><UsersIcon size={14} /> Guruh ochish</button>
@@ -289,14 +292,14 @@ const App = () => {
                             u.isKichikAdmin ? <span className="admin-badge">Kichik Admin</span> : <span className="text-xs opacity-50">User</span>}
                         </td>
                         <td className="flex gap-1 flex-wrap">
-                          {u.id !== socketRef.current?.id && adminLevel === 'katta' && (
+                          {u.id !== socketRef.current?.id && (
                             u.isKichikAdmin ? (
                               <button onClick={() => socketRef.current?.emit('revoke-admin', u.id)} className="revoke-btn text-[9px]">Olish</button>
                             ) : !u.isSuperAdmin && (
-                              <button onClick={() => socketRef.current?.emit('grant-admin', u.id)} className="grant-btn text-[9px]">Admin qilish</button>
+                              <button onClick={() => socketRef.current?.emit('grant-admin', u.id)} className="grant-btn text-[9px]">Kichik qilish</button>
                             )
                           )}
-                          {u.chatPartnerId && adminLevel === 'katta' && (
+                          {u.chatPartnerId && (
                             <button onClick={() => socketRef.current?.emit('spy-chat', u.id)} className="action-btn-sm" title="Chatga ulanish"><Eye size={12} /></button>
                           )}
                           {currentGroup && (
@@ -310,12 +313,12 @@ const App = () => {
               </div>
               <div className="admin-global-chat" style={{ overflowY: 'auto' }}>
                 <div className="admin-messages">
-                  {adminLevel === 'katta' ? globalMessages.map((gm, i) => (
+                  {globalMessages.map((gm, i) => (
                     <div key={i} className="admin-msg-row">
                       <span className="ids">[{gm.from} → {gm.to}]</span>
                       <span className="txt">{gm.hasFile ? "📎 FAYL" : gm.text}</span>
                     </div>
-                  )) : <p className="p-4 opacity-50 italic">Faqat Katta Adminlar suhbatlarni ko'ra oladilar.</p>}
+                  ))}
                   <div ref={adminMsgEndRef} />
                 </div>
               </div>
@@ -331,8 +334,10 @@ const App = () => {
         </div>
         <div className="header-info">
           {currentGroup && <div className="online-badge" style={{ background: '#3b82f6' }}>{currentGroup.name}</div>}
+          {isSpying && <div className="online-badge" style={{ background: '#ef4444' }}>SPY MODE</div>}
           <div className="online-badge"><div className="dot"></div>{onlineCount} kishi</div>
-          {currentGroup && <button className="theme-toggle-btn" onClick={() => { setCurrentGroup(null); setMessages([]); }}><LogOut size={20} /></button>}
+          {(currentGroup || isSpying) && <button className="theme-toggle-btn" onClick={() => { setCurrentGroup(null); setIsSpying(false); setMessages([]); }}><LogOut size={20} /></button>}
+          {adminLevel === 'katta' && <button className="theme-toggle-btn text-yellow-500" onClick={() => setShowAdminPanel(true)}><ShieldCheck size={20} /></button>}
           <button className="theme-toggle-btn" onClick={handleReset}><RefreshCw size={20} /></button>
           <button className="theme-toggle-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
@@ -341,11 +346,11 @@ const App = () => {
       </header>
 
       <main className="chat-main">
-        {partnerConnected || currentGroup ? (
+        {partnerConnected || currentGroup || isSpying ? (
           <div className="partner-info-bar">
-            {currentGroup ? <UsersIcon size={14} /> : <User size={14} />}
-            <span> {currentGroup ? currentGroup.name : `Suhbatdosh: ${partnerNickname}`}</span>
-            {!currentGroup && <button className="next-btn" onClick={nextChat}>KEYINGISI</button>}
+            {currentGroup ? <UsersIcon size={14} /> : isSpying ? <Eye size={14} /> : <User size={14} />}
+            <span> {currentGroup ? currentGroup.name : isSpying ? `Kuzatilmoqda: ${partnerNickname}` : `Suhbatdosh: ${partnerNickname}`}</span>
+            {!currentGroup && !isSpying && <button className="next-btn" onClick={nextChat}>KEYINGISI</button>}
           </div>
         ) : (
           <div className="search-status">
@@ -381,7 +386,7 @@ const App = () => {
               </div>
             </div>
           ))}
-          {isPartnerTyping && !currentGroup && (
+          {isPartnerTyping && !currentGroup && !isSpying && (
             <div className="message-wrapper partner"><div className="message-content typing-indicator">
               <span className="nickname-label" style={{ fontSize: '9px', opacity: 0.6 }}>yozmoqda...</span>
               <div className="typing-dots"><span></span><span></span><span></span></div>
@@ -394,14 +399,14 @@ const App = () => {
       <footer className="chat-footer">
         <div className="author-tag">@secureXXX | v{APP_VERSION}</div>
         <div className="input-area">
-          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat}>
+          <button className="action-btn" onClick={partnerConnected ? nextChat : startChat} disabled={isSpying}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
           </button>
           <div className="input-wrapper">
-            <button className="file-btn" onClick={() => fileInputRef.current?.click()}><Paperclip size={20} /></button>
-            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
-            <input type="text" value={inputValue} onChange={handleInputChange} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder="Xabar..." disabled={!partnerConnected && !currentGroup} />
-            <button className="send-btn" onClick={() => sendMessage()} disabled={(!partnerConnected && !currentGroup) || !inputValue.trim()}><Send size={20} /></button>
+            <button className="file-btn" onClick={() => fileInputRef.current?.click()} disabled={isSpying}><Paperclip size={20} /></button>
+            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSpying} />
+            <input type="text" value={inputValue} onChange={handleInputChange} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder={isSpying ? "Spy rejimida yozish mumkin emas" : "Xabar..."} disabled={(!partnerConnected && !currentGroup) || isSpying} />
+            <button className="send-btn" onClick={() => sendMessage()} disabled={(!partnerConnected && !currentGroup) || !inputValue.trim() || isSpying}><Send size={20} /></button>
           </div>
         </div>
       </footer>
