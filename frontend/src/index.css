@@ -412,6 +412,26 @@ body {
   }
 }
 
+.author-tag {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.5;
+  margin-bottom: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
 /* Admin Panel Styles */
 .admin-overlay {
   position: fixed;

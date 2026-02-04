@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Play, Square, Globe, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock, Globe2 } from 'lucide-react';
+import { Play, Square, User, Send, Moon, Sun, Paperclip, File as FileIcon, Download, ShieldCheck, Activity, Users, Clock } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backendd.onrender.com';
@@ -29,7 +29,6 @@ const App = () => {
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
-  const [partnerData, setPartnerData] = useState<{ age: string, country: string } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [onlineCount, setOnlineCount] = useState(0);
@@ -40,6 +39,7 @@ const App = () => {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const typedKeys = useRef<string>('');
+  const logoClicks = useRef<number>(0);
 
   const socketRef = useRef<Socket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -49,24 +49,41 @@ const App = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const triggerAdminLogin = () => {
+    const pass = prompt('Admin paroli:');
+    if (pass === '1212') {
+      socketRef.current?.emit('admin-login', pass);
+    } else if (pass !== null) {
+      alert('Noto\'g\'ri parol!');
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in message input
+      if (document.activeElement?.tagName === 'INPUT') return;
+
       typedKeys.current += e.key.toLowerCase();
-      if (typedKeys.current.endsWith('admin')) {
-        const pass = prompt('Admin paroli:');
-        if (pass === '1212') {
-          socketRef.current?.emit('admin-login', pass);
-        } else if (pass !== null) {
-          alert('Noto\'g\'ri parol!');
-        }
+      if (typedKeys.current.includes('admin')) {
+        triggerAdminLogin();
         typedKeys.current = '';
       }
-      if (typedKeys.current.length > 20) typedKeys.current = typedKeys.current.slice(-10);
+      if (typedKeys.current.length > 10) typedKeys.current = typedKeys.current.slice(-5);
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleLogoClick = () => {
+    logoClicks.current += 1;
+    if (logoClicks.current >= 5) {
+      triggerAdminLogin();
+      logoClicks.current = 0;
+    }
+    // Reset click count after 3 seconds
+    setTimeout(() => { logoClicks.current = 0; }, 3000);
+  };
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
@@ -74,10 +91,9 @@ const App = () => {
 
     socket.on('online-count', (count: number) => setOnlineCount(count));
 
-    socket.on('match-found', ({ partnerInfo }) => {
+    socket.on('match-found', () => {
       setInQueue(false);
       setPartnerConnected(true);
-      setPartnerData(partnerInfo);
       setMessages([{
         text: "Suhbatdosh topildi! Salom deng 😊",
         sender: 'partner',
@@ -87,9 +103,8 @@ const App = () => {
 
     socket.on('partner-disconnected', (data?: { reason: string }) => {
       setPartnerConnected(false);
-      setPartnerData(null);
       setInQueue(true);
-      socketRef.current?.emit('join-queue', userData);
+      socketRef.current?.emit('join-queue');
 
       const leaveMessage = data?.reason === 'skipped'
         ? "Suhbatdosh 'Keyingisi' tugmasini bosdi. Yangi suhbatdosh qidirilmoqda..."
@@ -106,10 +121,10 @@ const App = () => {
       setMessages(prev => [...prev, { ...msg, sender: 'partner', timestamp: Date.now() }]);
     });
 
-    // Admin listeners
     socket.on('admin-auth-success', () => {
       setIsAdmin(true);
       setShowAdminPanel(true);
+      alert('Admin sifatida muvaffaqiyatli kirdingiz!');
     });
 
     socket.on('admin-update', (data: AdminData) => {
@@ -126,18 +141,16 @@ const App = () => {
   const toggleChat = () => {
     if (!inQueue && !partnerConnected) {
       setInQueue(true);
-      socketRef.current?.emit('join-queue', userData);
+      socketRef.current?.emit('join-queue');
     } else {
       setInQueue(false);
       setPartnerConnected(false);
-      setPartnerData(null);
       socketRef.current?.emit('next-user');
     }
   };
 
   const nextUser = () => {
     setPartnerConnected(false);
-    setPartnerData(null);
     setMessages([]);
     setInQueue(true);
     socketRef.current?.emit('next-user');
@@ -195,7 +208,7 @@ const App = () => {
             <div className="admin-header">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="text-blue-500" />
-                <h2>Boshqaruv Paneli</h2>
+                <h2 style={{ color: 'white' }}>Boshqaruv Paneli</h2>
               </div>
               <Activity className="text-blue-500 animate-pulse" />
               <button className="close-admin" onClick={() => setShowAdminPanel(false)}>Yopish</button>
@@ -219,14 +232,12 @@ const App = () => {
               </div>
             </div>
 
-            <div className="admin-user-list">
+            <div className="admin-user-list scrollbar-hide">
               <table>
                 <thead>
                   <tr>
                     <th>ID</th>
                     <th>IP Manzil</th>
-                    <th>Hudud</th>
-                    <th>Yosh</th>
                     <th>Holat</th>
                   </tr>
                 </thead>
@@ -235,8 +246,6 @@ const App = () => {
                     <tr key={i} className={u.id === socketRef.current?.id ? 'is-me' : ''}>
                       <td className="font-mono text-[10px]">{u.id.slice(0, 8)}...</td>
                       <td className="font-mono text-[11px] text-blue-400">{u.ip}</td>
-                      <td>{u.country}</td>
-                      <td>{u.age}</td>
                       <td>
                         <span className={`status-pill ${u.status === 'Chatda' ? 'bg-green-500' : 'bg-blue-500'}`}>
                           {u.status}
@@ -252,7 +261,7 @@ const App = () => {
       )}
 
       <header className="chat-header">
-        <div className="logo" onClick={() => isAdmin && setShowAdminPanel(true)} style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
+        <div className="logo" onClick={handleLogoClick} style={{ cursor: 'pointer' }}>
           CHAT<span>UZ</span>
           {isAdmin && <ShieldCheck size={14} className="inline ml-1 text-blue-500" />}
         </div>
@@ -290,7 +299,7 @@ const App = () => {
           </div>
         )}
 
-        <div className="messages-display">
+        <div className="messages-display scrollbar-hide">
           {messages.map((m, i) => (
             <div key={i} className={`message-wrapper ${m.sender}`}>
               <div className="message-content">
@@ -319,6 +328,7 @@ const App = () => {
       </main>
 
       <footer className="chat-footer">
+        <div className="author-tag">Muallif: @secureXXX</div>
         <div className="input-area">
           <button className="action-btn" onClick={toggleChat} title={inQueue || partnerConnected ? "To'xtatish" : "Boshlash"}>
             {inQueue || partnerConnected ? <Square size={24} /> : <Play size={24} />}
