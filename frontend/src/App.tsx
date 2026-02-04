@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, AlertTriangle, MessageSquare, Send, Globe, User, PhoneOff } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
 
 const App = () => {
+  // ... (rest of the component logic remains same until return)
   const [userData, setUserData] = useState<{ age: string, country: string } | null>(null);
   const [inQueue, setInQueue] = useState(false);
   const [partnerConnected, setPartnerConnected] = useState(false);
@@ -22,10 +23,7 @@ const App = () => {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   const configuration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ]
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
   };
 
   useEffect(() => {
@@ -41,15 +39,12 @@ const App = () => {
 
   const initSocket = () => {
     socketRef.current = io(SOCKET_URL);
-
     socketRef.current.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
-
       createPeerConnection(partnerId);
-
       if (initiator) {
         const offer = await peerConnectionRef.current?.createOffer();
         await peerConnectionRef.current?.setLocalDescription(offer);
@@ -67,11 +62,7 @@ const App = () => {
       } else if (data.type === 'answer') {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
       } else if (data.type === 'candidate' && data.candidate) {
-        try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.error(e);
-        }
+        try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { }
       }
     });
 
@@ -79,7 +70,7 @@ const App = () => {
       resetPeerConnection();
       setPartnerConnected(false);
       setPartnerData(null);
-      setInQueue(true);
+      if (inQueue) socketRef.current?.emit('join-queue', userData);
     });
 
     socketRef.current.on('receive-message', (msg) => {
@@ -93,7 +84,7 @@ const App = () => {
       setLocalStream(stream);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     } catch (err) {
-      alert('Kamera va mikrofonga ruxsat berilishi shart!');
+      alert('Kamera ruxsati zarur!');
     }
   };
 
@@ -105,9 +96,7 @@ const App = () => {
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
     peerConnectionRef.current.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
-      }
+      if (event.candidate) socketRef.current?.emit('signal', { type: 'candidate', candidate: event.candidate, to: partnerId });
     };
   };
 
@@ -118,12 +107,20 @@ const App = () => {
     }
   };
 
-  const startChat = () => {
-    setInQueue(true);
-    socketRef.current?.emit('join-queue', userData);
+  const toggleChat = () => {
+    if (!inQueue && !partnerConnected) {
+      setInQueue(true);
+      socketRef.current?.emit('join-queue', userData);
+    } else {
+      setInQueue(false);
+      resetPeerConnection();
+      setPartnerConnected(false);
+      socketRef.current?.emit('next-user');
+    }
   };
 
   const nextUser = () => {
+    if (!inQueue && !partnerConnected) return;
     resetPeerConnection();
     setPartnerConnected(false);
     setPartnerData(null);
@@ -148,14 +145,9 @@ const App = () => {
     }
   };
 
-  const reportUser = () => {
-    socketRef.current?.emit('report-user');
-    nextUser();
-  };
-
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !partnerConnected) return;
     socketRef.current?.emit('send-message', inputValue);
     setMessages(prev => [...prev, { text: inputValue, sender: 'me' }]);
     setInputValue('');
@@ -166,118 +158,129 @@ const App = () => {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden text-white font-sans">
-      {/* Video Content Area */}
-      <div className="flex-1 relative flex flex-col p-4 gap-4">
-        {/* Top Floating Header */}
-        <div className="absolute top-8 left-8 right-8 z-20 flex justify-between items-center bg-black/20 backdrop-blur-xl p-4 rounded-3xl border border-white/10">
-          <div className="flex items-center gap-6">
-            <h1 className="text-3xl font-black tracking-tighter bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">CHATUZ</h1>
-            <div className="hidden md:flex gap-4 items-center">
-              <div className="status-badge"><Globe size={14} /> {userData.country}</div>
-              <div className="status-badge"><User size={14} /> {userData.age} yosh</div>
+    <div className="flex flex-col h-screen w-full bg-[#0b1120]">
+      {/* Video Section */}
+      <div className="video-grid">
+        <div className="video-box">
+          <div className="badge">SIZ</div>
+          <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
+          {!camOn && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-950">
+              <CameraOff size={64} className="text-white/20" />
             </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm font-semibold text-white/70">
-              {partnerConnected ? 'Bog\'langan' : inQueue ? 'Navbatda...' : 'Tayyor'}
-            </div>
-            {partnerConnected && <div className="online-dot animate-pulse"></div>}
+          )}
+          {/* Overlay Mic/Cam Toggles */}
+          <div className="absolute bottom-4 right-4 flex gap-2">
+            <button onClick={toggleMic} className={`p-3 rounded-full ${micOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
+              {micOn ? <Mic size={20} /> : <MicOff size={20} />}
+            </button>
+            <button onClick={toggleCam} className={`p-3 rounded-full ${camOn ? 'bg-white/10' : 'bg-red-500/80'} backdrop-blur-md border border-white/10`}>
+              {camOn ? <Camera size={20} /> : <CameraOff size={20} />}
+            </button>
           </div>
         </div>
 
-        {/* The Video Grid */}
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 mt-24 pb-20">
-          {/* Local Video */}
-          <div className="video-container group">
-            <video ref={localVideoRef} autoPlay muted playsInline className="mirror" />
-            <div className="absolute top-4 left-4 glass px-4 py-2 text-xs font-bold uppercase tracking-widest">SIZ</div>
-            {!camOn && (
-              <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
-                <CameraOff size={64} className="text-indigo-500/30" />
+        <div className="video-box">
+          <div className="badge">{partnerConnected ? "SUHBATDOSH" : "IDIRILMOQDA..."}</div>
+          {partnerConnected ? (
+            <>
+              <video ref={remoteVideoRef} autoPlay playsInline />
+              <div className="absolute bottom-4 left-4 glass px-4 py-2 text-xs flex gap-4">
+                <span className="flex items-center gap-1"><Globe size={14} /> {partnerData?.country}</span>
+                <span className="flex items-center gap-1"><User size={14} /> {partnerData?.age} yosh</span>
               </div>
-            )}
-          </div>
-
-          {/* Remote Video */}
-          <div className="video-container">
-            {partnerConnected ? (
-              <>
-                <video ref={remoteVideoRef} autoPlay playsInline />
-                <div className="absolute top-4 left-4 flex flex-col gap-2">
-                  <div className="glass px-4 py-2 text-xs font-bold uppercase tracking-widest">SUHBATDOSH</div>
-                  <div className="glass px-3 py-1.5 text-[10px] flex items-center gap-2">
-                    <span>{partnerData?.country}</span>
-                    <span>•</span>
-                    <span>{partnerData?.age} yosh</span>
-                  </div>
+            </>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center bg-gray-900/40">
+              {inQueue ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-blue-400 font-bold tracking-widest text-sm">SUHBATDOSH QIDIRILMOQDA...</span>
                 </div>
-              </>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center bg-zinc-900/50 space-y-6">
-                {!inQueue ? (
-                  <button onClick={startChat} className="primary-btn px-12 py-4 text-xl pulse">Boshlash</button>
-                ) : (
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-indigo-400 font-bold tracking-widest animate-pulse">QIDIRILMOQDA...</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Floating Controls */}
-        <div className="controls-overlay">
-          <button onClick={toggleMic} className={micOn ? "secondary-btn" : "danger-btn"} title="Mic">
-            {micOn ? <Mic size={24} /> : <MicOff size={24} />}
-          </button>
-          <button onClick={toggleCam} className={camOn ? "secondary-btn" : "danger-btn"} title="Cam">
-            {camOn ? <Camera size={24} /> : <CameraOff size={24} />}
-          </button>
-          <button onClick={nextUser} className="primary-btn px-8" title="Keyingisi">
-            <SkipForward size={24} fill="white" />
-            <span className="hidden md:inline font-bold">KEYINGISI</span>
-          </button>
-          <button onClick={reportUser} className="danger-btn" title="Report">
-            <AlertTriangle size={24} />
-          </button>
+              ) : (
+                <div className="text-center opacity-30">
+                  <Play size={80} />
+                  <p className="mt-4 font-bold">BOSHLASH TUGMASINI BOSING</p>
+                </div>
+              )}
+            </div>
+          )}
+          {partnerConnected && (
+            <button
+              onClick={() => { socketRef.current?.emit('report-user'); nextUser(); }}
+              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500 transition-all"
+              title="Report"
+            >
+              <AlertCircle size={20} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Chat Sidebar */}
-      <div className="chat-panel">
-        <div className="p-6 border-b border-white/10 flex items-center gap-2 text-indigo-400 font-bold text-lg">
-          <MessageSquare size={20} /> CHAT
+      {/* Bottom Panel */}
+      <div className="bottom-panel relative">
+        <div className="main-controls">
+          {/* Start/Stop Block */}
+          <div
+            onClick={toggleChat}
+            className={`control-block ${inQueue || partnerConnected ? 'active' : ''}`}
+          >
+            {inQueue || partnerConnected ? <Square size={32} /> : <Play size={32} fill="currentColor" />}
+            <span>{inQueue || partnerConnected ? "Stop" : "Start"}</span>
+          </div>
+
+          {/* Next User Block */}
+          <div
+            onClick={nextUser}
+            className={`control-block ${!inQueue && !partnerConnected ? 'disabled' : ''}`}
+          >
+            <SkipForward size={32} fill="currentColor" />
+            <span>Keyingisi</span>
+          </div>
+
+          {/* Country Block */}
+          <div className="control-block active">
+            <Globe size={32} />
+            <span>{userData.country.split(' (')[0]}</span>
+          </div>
+
+          {/* Sex Block - Mocked as Active */}
+          <div className="control-block active hidden sm:flex">
+            <User size={32} />
+            <span>Barcha</span>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
-          {messages.length === 0 && (
-            <div className="h-full flex items-center justify-center opacity-20 flex-col gap-4">
-              <MessageSquare size={48} />
-              <p className="text-sm font-medium">Suhbatni boshlang...</p>
-            </div>
-          )}
-          {messages.map((msg, idx) => (
-            <div key={idx} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm ${msg.sender === 'me' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white/10 rounded-bl-none'}`}>
-                {msg.text}
+
+        {/* Chat Area */}
+        <div className="flex-1 flex flex-col max-w-[500px] h-[100px] bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-hide text-xs">
+            {messages.length === 0 && <p className="text-center text-white/20 mt-4">Suhbat hali boshlanmadi...</p>}
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`px-3 py-1.5 rounded-xl ${m.sender === 'me' ? 'bg-blue-600' : 'bg-white/10'}`}>
+                  {m.text}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          <form onSubmit={sendMessage} className="h-10 border-t border-white/10 flex items-center px-2 gap-2">
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Xabar yozing (Enter)"
+              className="flex-1 bg-transparent border-none outline-none text-sm text-white"
+            />
+            <button type="submit" className="text-blue-500 hover:text-blue-400">
+              <Send size={18} />
+            </button>
+          </form>
         </div>
-        <form onSubmit={sendMessage} className="p-4 border-t border-white/10 flex gap-2">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Xabar..."
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-          />
-          <button type="submit" className="p-3 bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-all">
-            <Send size={20} />
-          </button>
-        </form>
+
+        {/* Developer Credit */}
+        <div className="absolute right-4 bottom-2 text-[10px] text-white/20 font-bold tracking-widest hidden lg:block">
+          YARATUVCHI: SHONAZAROV DIYORBEK
+        </div>
       </div>
     </div>
   );
