@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 
 interface AgeConfirmationProps {
-    onConfirm: (data: { nickname: string }) => void;
+    onConfirm: (data: { nickname: string, uid: string }) => void;
     realOnlineCount: number;
 }
 
@@ -12,7 +12,8 @@ const AgeConfirmation: React.FC<AgeConfirmationProps> = ({ onConfirm, realOnline
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (nickname.trim().length >= 3) {
-            onConfirm({ nickname: nickname.trim() });
+            const uid = localStorage.getItem('chatuz_uid') || '';
+            onConfirm({ nickname: nickname.trim(), uid });
         }
     };
 

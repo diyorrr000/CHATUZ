@@ -16,8 +16,9 @@ const PORT = process.env.PORT || 5000;
 
 let waitingQueue = [];
 const activeChats = new Map(); // socket.id -> { partnerId, pairId }
-const users = new Map(); // socket.id -> { nickname, ip }
-const admins = new Set();
+const users = new Map(); // socket.id -> { nickname, ip, uid }
+const currentAdmins = new Set(); // socket.id of active admins
+const permanentAdmins = new Set(); // uids of permanent admins
 
 function getClientIP(socket) {
     const forwarded = socket.handshake.headers['x-forwarded-for'];
@@ -29,6 +30,8 @@ function broadcastAdminUpdate() {
         id,
         nickname: data.nickname,
         ip: data.ip,
+        uid: data.uid,
+        isAdmin: currentAdmins.has(id) || (data.uid && permanentAdmins.has(data.uid)),
         status: activeChats.has(id) ? 'Chatda' : (waitingQueue.find(u => u.id === id) ? 'Navbatda' : 'Online')
     }));
     io.to('admin-room').emit('admin-update', {
@@ -46,12 +49,48 @@ io.on('connection', (socket) => {
 
     socket.on('join-queue', (data) => {
         const nickname = data?.nickname || 'Mehmon';
-        users.set(socket.id, { ...users.get(socket.id), nickname });
+        const uid = data?.uid;
+        users.set(socket.id, { ...users.get(socket.id), nickname, uid });
+
+        // Auto-login if permanent admin
+        if (uid && permanentAdmins.has(uid)) {
+            currentAdmins.add(socket.id);
+            socket.join('admin-room');
+            socket.emit('admin-auth-success');
+        }
 
         cleanupUser(socket.id);
         waitingQueue.push({ id: socket.id, nickname });
         matchUsers();
         broadcastAdminUpdate();
+    });
+
+    socket.on('grant-admin', (targetId) => {
+        if (currentAdmins.has(socket.id)) {
+            const targetUser = users.get(targetId);
+            if (targetUser && targetUser.uid) {
+                permanentAdmins.add(targetUser.uid);
+                currentAdmins.add(targetId);
+                const targetSocket = io.sockets.sockets.get(targetId);
+                if (targetSocket) targetSocket.join('admin-room');
+                io.to(targetId).emit('admin-auth-success');
+                broadcastAdminUpdate();
+            }
+        }
+    });
+
+    socket.on('revoke-admin', (targetId) => {
+        if (currentAdmins.has(socket.id)) {
+            const targetUser = users.get(targetId);
+            if (targetUser && targetUser.uid) {
+                permanentAdmins.delete(targetUser.uid);
+                currentAdmins.delete(targetId);
+                const targetSocket = io.sockets.sockets.get(targetId);
+                if (targetSocket) targetSocket.leave('admin-room');
+                io.to(targetId).emit('admin-revoked');
+                broadcastAdminUpdate();
+            }
+        }
     });
 
     socket.on('next-user', () => {
@@ -64,20 +103,21 @@ io.on('connection', (socket) => {
 
     socket.on('send-message', (payload) => {
         const chat = activeChats.get(socket.id);
-        // CRITICAL: Check if pairId matches and partner is still connected to same pair
+        const userData = users.get(socket.id);
         if (chat && chat.partnerId) {
             const partnerChat = activeChats.get(chat.partnerId);
             if (partnerChat && partnerChat.pairId === chat.pairId) {
+                const isMsgAdmin = currentAdmins.has(socket.id) || (userData?.uid && permanentAdmins.has(userData.uid));
                 io.to(chat.partnerId).emit('receive-message', {
                     ...payload,
-                    senderNickname: users.get(socket.id)?.nickname,
-                    isAdmin: admins.has(socket.id),
+                    senderNickname: userData?.nickname,
+                    isAdmin: isMsgAdmin,
                     timestamp: Date.now()
                 });
 
                 // Admin log
                 io.to('admin-room').emit('admin-new-message', {
-                    from: users.get(socket.id)?.nickname || 'Anon',
+                    from: userData?.nickname || 'Anon',
                     to: users.get(chat.partnerId)?.nickname || 'Anon',
                     text: payload.text,
                     hasFile: !!payload.file,
@@ -97,7 +137,7 @@ io.on('connection', (socket) => {
     socket.on('admin-login', (pass) => {
         if (pass === '1212') {
             socket.join('admin-room');
-            admins.add(socket.id);
+            currentAdmins.add(socket.id);
             socket.emit('admin-auth-success');
             broadcastAdminUpdate();
         }
@@ -106,14 +146,13 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         cleanupUser(socket.id);
         users.delete(socket.id);
-        admins.delete(socket.id);
+        currentAdmins.delete(socket.id);
         io.emit('online-count', io.engine.clientsCount);
         broadcastAdminUpdate();
     });
 });
 
 function cleanupUser(socketId, reason = 'left') {
-    // 1. If in chat, tell partner and remove partner's link
     const chat = activeChats.get(socketId);
     if (chat) {
         const partnerId = chat.partnerId;
@@ -121,7 +160,6 @@ function cleanupUser(socketId, reason = 'left') {
         activeChats.delete(partnerId);
         activeChats.delete(socketId);
     }
-    // 2. Remove from queue
     waitingQueue = waitingQueue.filter(u => u.id !== socketId);
 }
 
@@ -129,7 +167,7 @@ function matchUsers() {
     while (waitingQueue.length >= 2) {
         const user1 = waitingQueue.shift();
         const user2 = waitingQueue.shift();
-        const pairId = uuidv4(); // Unique ID for this specific 1v1 session
+        const pairId = uuidv4();
 
         activeChats.set(user1.id, { partnerId: user2.id, pairId });
         activeChats.set(user2.id, { partnerId: user1.id, pairId });

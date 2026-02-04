@@ -29,10 +29,18 @@ interface AdminGlobalMessage {
 }
 
 const App = () => {
-  const [userData, setUserData] = useState<{ nickname: string } | null>(() => {
+  const [userData, setUserData] = useState<{ nickname: string, uid: string } | null>(() => {
     try {
       const saved = localStorage.getItem('chatuz_user');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) return JSON.parse(saved);
+
+      // If no user, create a temporary UID for persistence
+      let existingUid = localStorage.getItem('chatuz_uid');
+      if (!existingUid) {
+        existingUid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('chatuz_uid', existingUid);
+      }
+      return null;
     } catch (e) { return null; }
   });
 
@@ -163,6 +171,12 @@ const App = () => {
       setGlobalMessages(prev => [...prev, msg].slice(-100));
     });
 
+    socket.on('admin-revoked', () => {
+      setIsAdmin(false);
+      setShowAdminPanel(false);
+      alert('Sizdan adminlik huquqi olindi.');
+    });
+
     return () => { socket.disconnect(); };
   }, [handlePartnerDisconnect]);
 
@@ -259,10 +273,22 @@ const App = () => {
             <div className="admin-content-grid">
               <div className="admin-user-list scrollbar-hide">
                 <table>
-                  <thead><tr><th>NIK</th><th>STATUS</th></tr></thead>
+                  <thead><tr><th>NIK</th><th>STATUS</th><th>AMAL</th></tr></thead>
                   <tbody>
                     {adminData?.users.map((u, i) => (
-                      <tr key={i}><td>{u.nickname}</td><td>{u.status}</td></tr>
+                      <tr key={i}>
+                        <td>{u.nickname}</td>
+                        <td>{u.status} {u.isAdmin && <ShieldCheck size={10} className="inline text-blue-500" />}</td>
+                        <td>
+                          {u.id !== socketRef.current?.id && (
+                            u.isAdmin ? (
+                              <button onClick={() => socketRef.current?.emit('revoke-admin', u.id)} className="revoke-btn">Olish</button>
+                            ) : (
+                              <button onClick={() => socketRef.current?.emit('grant-admin', u.id)} className="grant-btn">Admin qilish</button>
+                            )
+                          )}
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
