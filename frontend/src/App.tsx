@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2 } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, SkipForward, Play, Square, Globe, User, Send, AlertCircle, Moon, Sun, Loader2, Volume2, VolumeX } from 'lucide-react';
 import AgeConfirmation from './components/AgeConfirmation';
 
 const SOCKET_URL = 'https://chatuz-backend.onrender.com';
@@ -18,6 +18,7 @@ const App = () => {
   const [onlineCount, setOnlineCount] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [connStatus, setConnStatus] = useState<string>('');
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -43,8 +44,8 @@ const App = () => {
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'], // Fallback allowed
-      reconnectionAttempts: 5
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10
     });
     socketRef.current = socket;
 
@@ -53,29 +54,26 @@ const App = () => {
     });
 
     socket.on('match-found', async ({ partnerId, initiator, partnerInfo }) => {
-      console.log('Match found. Initiator:', initiator);
       setInQueue(false);
       setPartnerConnected(true);
       setPartnerData(partnerInfo);
       setMessages([]);
-      setConnStatus('Ulanmoqda...');
+      setConnStatus('Ulanish o\'rnatilmoqda...');
 
       const pc = createPeerConnection(partnerId);
 
       if (initiator) {
-        // Wait 800ms to let the other side initialize their PC
         setTimeout(async () => {
           try {
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
             await pc.setLocalDescription(offer);
             socketRef.current?.emit('signal', { type: 'offer', sdp: offer, to: partnerId });
           } catch (err) {
             console.error('Offer error:', err);
           }
-        }, 800);
+        }, 1000);
       }
 
-      // Process any signals that arrived before match-found
       while (pendingSignals.current.length > 0) {
         const sig = pendingSignals.current.shift();
         handleSignal(sig, pc);
@@ -138,7 +136,7 @@ const App = () => {
     setPartnerConnected(false);
     setPartnerData(null);
     setConnStatus('');
-    // Automatically resume search if user didn't stop manually
+    setRemoteStream(null);
     setInQueue(true);
     socketRef.current?.emit('join-queue', userData);
   };
@@ -160,7 +158,7 @@ const App = () => {
       return stream;
     } catch (err) {
       console.error('Media Access Denied:', err);
-      alert('Kamera va mikrofonga ruxsat bering!');
+      alert('Kamera va mikrofonga ruxsat bering! Busiz ulanish imkonsiz.');
     }
   };
 
@@ -178,11 +176,22 @@ const App = () => {
     }
 
     pc.ontrack = (event) => {
-      console.log('Stream received from partner');
-      setConnStatus(''); // Connected!
+      console.log('Track received from partner');
+      setConnStatus('');
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-        remoteVideoRef.current.play().catch(console.error);
+        if (event.streams && event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+          setRemoteStream(event.streams[0]);
+        } else {
+          const incomingStream = remoteStream || new MediaStream();
+          incomingStream.addTrack(event.track);
+          remoteVideoRef.current.srcObject = incomingStream;
+          setRemoteStream(incomingStream);
+        }
+        remoteVideoRef.current.play().catch(e => {
+          console.warn('Auto-play blocked, waiting for interaction', e);
+          setConnStatus('Videoni ko\'rish uchun shu erni bosing');
+        });
       }
     };
 
@@ -193,8 +202,9 @@ const App = () => {
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE Connection:', pc.iceConnectionState);
+      console.log('ICE:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected') setConnStatus('');
+      if (pc.iceConnectionState === 'disconnected') setConnStatus('Aloqa uzildi...');
       if (pc.iceConnectionState === 'failed') setConnStatus('Ulanish xatosi (Firewall)');
     };
 
@@ -223,6 +233,7 @@ const App = () => {
       setPartnerConnected(false);
       setPartnerData(null);
       setConnStatus('');
+      setRemoteStream(null);
       socketRef.current?.emit('next-user');
     }
   };
@@ -233,6 +244,7 @@ const App = () => {
     setPartnerData(null);
     setMessages([]);
     setConnStatus('');
+    setRemoteStream(null);
     setInQueue(true);
     socketRef.current?.emit('next-user');
   };
@@ -261,6 +273,12 @@ const App = () => {
     setInputValue('');
   };
 
+  const handleRemotePlay = () => {
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.play().then(() => setConnStatus('')).catch(console.error);
+    }
+  };
+
   if (!userData) {
     return <AgeConfirmation realOnlineCount={onlineCount} onConfirm={(data) => setUserData(data)} />;
   }
@@ -286,15 +304,19 @@ const App = () => {
           </div>
         </div>
 
-        <div className="video-box">
+        <div className="video-box" onClick={handleRemotePlay}>
           <div className="badge">{partnerConnected ? "SUHBATDOSH" : "QIDIRILMOQDA..."}</div>
           {partnerConnected ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline />
               {connStatus && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm z-10">
-                  <Loader2 className="animate-spin text-blue-500 mb-2" size={40} />
-                  <span className="text-white text-xs font-bold">{connStatus}</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 text-center p-4">
+                  {connStatus.includes('Ulanish') ? (
+                    <Loader2 className="animate-spin text-blue-500 mb-2" size={40} />
+                  ) : (
+                    <Volume2 className="text-blue-500 mb-2 animate-bounce" size={40} />
+                  )}
+                  <span className="text-white text-xs font-bold uppercase tracking-wider">{connStatus}</span>
                 </div>
               )}
               <div className="absolute bottom-4 left-4 glass px-3 py-1 text-[10px] flex gap-3 text-white">
@@ -319,8 +341,8 @@ const App = () => {
           )}
           {partnerConnected && (
             <button
-              onClick={() => { socketRef.current?.emit('report-user'); nextUser(); }}
-              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500"
+              onClick={(e) => { e.stopPropagation(); socketRef.current?.emit('report-user'); nextUser(); }}
+              className="absolute top-4 right-4 p-2 bg-red-500/20 hover:bg-red-500/40 rounded-lg border border-red-500/30 text-red-500 z-20"
             >
               <AlertCircle size={18} />
             </button>
@@ -352,7 +374,7 @@ const App = () => {
 
         <div className="chat-container">
           <div className="chat-messages scrollbar-hide">
-            {messages.length === 0 && <p className="text-center opacity-20 mt-4">Suhbat - {partnerConnected ? 'Salom bering!' : 'Hali boshlanmadi'}</p>}
+            {messages.length === 0 && <p className="text-center opacity-20 mt-4">{partnerConnected ? 'Salom bering!' : 'Xabarlar yo\'q...'}</p>}
             {messages.map((m, i) => (
               <div key={i} style={{ textAlign: m.sender === 'me' ? 'right' : 'left', marginBottom: '4px' }}>
                 <span style={{
