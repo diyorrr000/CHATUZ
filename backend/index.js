@@ -71,6 +71,7 @@ io.on('connection', (socket) => {
                 io.to(chat.partnerId).emit('receive-message', {
                     ...payload,
                     senderNickname: users.get(socket.id)?.nickname,
+                    isAdmin: admins.has(socket.id),
                     timestamp: Date.now()
                 });
 

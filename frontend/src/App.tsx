@@ -11,6 +11,7 @@ interface Message {
   file?: { name: string; type: string; data: string; };
   sender: 'me' | 'partner';
   senderNickname?: string;
+  isAdmin?: boolean;
   timestamp: number;
 }
 
@@ -179,7 +180,13 @@ const App = () => {
     if (!inputValue.trim() || !partnerConnected || !isConnected) return;
     const msg = { text: inputValue };
     socketRef.current?.emit('send-message', msg);
-    setMessages(prev => [...prev, { text: inputValue, sender: 'me', senderNickname: userData?.nickname, timestamp: Date.now() }]);
+    setMessages(prev => [...prev, {
+      text: inputValue,
+      sender: 'me',
+      senderNickname: userData?.nickname,
+      isAdmin: isAdmin,
+      timestamp: Date.now()
+    }]);
     setInputValue('');
   };
 
@@ -191,7 +198,13 @@ const App = () => {
       const base64Data = event.target?.result as string;
       const fileMsg = { file: { name: file.name, type: file.type, data: base64Data } };
       socketRef.current?.emit('send-message', fileMsg);
-      setMessages(prev => [...prev, { file: fileMsg.file, sender: 'me', senderNickname: userData?.nickname, timestamp: Date.now() }]);
+      setMessages(prev => [...prev, {
+        file: fileMsg.file,
+        sender: 'me',
+        senderNickname: userData?.nickname,
+        isAdmin: isAdmin,
+        timestamp: Date.now()
+      }]);
     };
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -281,9 +294,13 @@ const App = () => {
 
         <div className="messages-display scrollbar-hide">
           {messages.map((m, i) => (
-            <div key={i} className={`message-wrapper ${m.sender}`}>
+            <div key={i} className={`message-wrapper ${m.sender} ${m.isAdmin ? 'admin-msg' : ''}`}>
               <div className="message-content">
-                <span className="nickname-label"> {m.sender === 'me' ? 'Siz' : m.senderNickname} </span>
+                <span className="nickname-label">
+                  {m.isAdmin && <ShieldCheck size={10} className="inline mr-1 text-yellow-500" />}
+                  {m.sender === 'me' ? 'Siz' : m.senderNickname}
+                  {m.isAdmin && <span className="admin-badge">ADMIN</span>}
+                </span>
                 {m.text && <p className="text">{m.text}</p>}
                 {m.file && (
                   <div className="file-attachment">
